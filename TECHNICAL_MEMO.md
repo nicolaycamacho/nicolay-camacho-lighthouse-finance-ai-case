@@ -35,6 +35,8 @@ The response schema is explicit:
 - review requirements;
 - audit metadata.
 
+In a production finance workflow, every material number shown to a user should be traceable to a deterministic source record or reconciled warehouse model before it is treated as evidence.
+
 `src/llm/parseModelOutput.ts` shows how raw provider JSON would be parsed and validated. Raw analyzer/model output omits service-owned `validation` metadata. If JSON parsing fails or raw output schema validation fails, the service raises a `ModelOutputError`, which maps to a `502` response after retry exhaustion.
 
 The analyzer/model does not own the response `validation` metadata. After raw output is validated, the route adds `schema_valid`, derives `grounding_records_found` only from evidence records registered through the opt-in trusted-evidence channel, and validates those records with the citation schema before counting them. It sets `numeric_reconciliation_passed` only when every amount-bearing driver has currency plus matching trusted deterministic evidence. Analyzer-returned citation strings are explanatory output, not proof by themselves. The optional live adapter strips model-produced citations because it has no retrieval layer. No-amount summaries and ungrounded numeric claims default to `false`. Only after that does the route apply client-facing citation suppression.
