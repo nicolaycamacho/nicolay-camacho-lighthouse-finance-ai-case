@@ -188,8 +188,39 @@ Mappings:
   "analysis_type": "variance",
   "status": "needs_review",
   "summary": "Marketing Opex for uk_01 in 2026-05 is above threshold and needs review.",
-  "drivers": [],
-  "recommended_actions": [],
+  "drivers": [
+    {
+      "rank": 1,
+      "driver_type": "paid_social_spend",
+      "label": "Paid social campaign acceleration",
+      "amount": 42750,
+      "currency": "USD",
+      "explanation": "Spend increased as the UK demand generation campaign pulled two planned July tests into the May close period.",
+      "citations": [
+        { "source_type": "warehouse_model", "source_record_id": "variance_uk_01_2026-05_marketing_opex" },
+        { "source_type": "brex_transaction", "source_record_id": "brex_uk_01_2026-05_paid_social_771" }
+      ]
+    },
+    {
+      "rank": 2,
+      "driver_type": "agency_invoice",
+      "label": "Agency invoice timing",
+      "amount": 31800,
+      "currency": "USD",
+      "explanation": "A creative agency invoice was posted after the accrual review, creating a timing-driven variance that should be checked with the close owner.",
+      "citations": [
+        { "source_type": "netsuite_suiteql", "source_record_id": "vendor_bill_uk_01_2026-05_agency_1842" }
+      ]
+    }
+  ],
+  "recommended_actions": [
+    {
+      "action_type": "draft_commentary",
+      "priority": "high",
+      "owner_role": "Controller",
+      "text": "Draft management-reporting commentary that attributes the Marketing Opex variance to campaign acceleration and agency invoice timing, with both source records attached."
+    }
+  ],
   "confidence": {
     "overall": 0.82,
     "reasons": ["Variance amount reconciles to deterministic warehouse records."]
@@ -202,7 +233,7 @@ Mappings:
   "validation": {
     "schema_valid": true,
     "grounding_records_found": 3,
-    "numeric_reconciliation_passed": false
+    "numeric_reconciliation_passed": true
   },
   "review_required": true,
   "audit": {
