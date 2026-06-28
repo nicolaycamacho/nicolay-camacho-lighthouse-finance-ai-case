@@ -8,9 +8,18 @@ import { parseModelOutput } from "../llm/parseModelOutput";
 import { retry } from "../lib/retry";
 import { setSseHeaders, writeSseEvent } from "../lib/sse";
 import { withTimeout } from "../lib/timeout";
-import { analyzeRequestSchema, analyzeResponseSchema, type AnalyzeRequest, type AnalyzeResponse } from "../schemas/analyze";
+import {
+  analyzeModelOutputSchema,
+  analyzeRequestSchema,
+  analyzeResponseSchema,
+  type AnalyzeModelOutput,
+  type AnalyzeRequest,
+  type AnalyzeResponse,
+  type FinanceAnalyzerRequest
+} from "../schemas/analyze";
 
 const defaultAnalyzer = new MockFinanceAnalyzer();
+const RECONCILIATION_SOURCE_TYPES = new Set(["warehouse_model", "netsuite_suiteql", "brex_transaction", "ap_case"]);
 
 export const analyzeRouter = createAnalyzeRouter(defaultAnalyzer);
 
@@ -60,8 +69,9 @@ async function runAnalyze(analyzer: FinanceAnalyzer, request: AnalyzeRequest, ru
   try {
     return await retry(
       async () => {
+        const analyzerRequest = toFinanceAnalyzerRequest(request);
         const rawResult = await withTimeout(
-          analyzer.analyze(request, { runId, signal: abortController.signal }),
+          analyzer.analyze(analyzerRequest, { runId, signal: abortController.signal }),
           timeoutMs,
           "Analyze request exceeded the configured timeout",
           { abortController }
@@ -168,9 +178,14 @@ function narrativeFor(request: AnalyzeRequest) {
   return "Preparing close readiness summary from deterministic variance and blocker signals.";
 }
 
+function toFinanceAnalyzerRequest(request: AnalyzeRequest): FinanceAnalyzerRequest {
+  const { include_citations: _includeCitations, ...analyzerRequest } = request;
+  return analyzerRequest;
+}
+
 function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput, request: AnalyzeRequest) {
   const analyzerResult = typeof output === "string" ? parseModelOutput(output) : output;
-  const parsedResult = analyzeResponseSchema.safeParse(analyzerResult);
+  const parsedResult = analyzeModelOutputSchema.safeParse(analyzerResult);
   if (!parsedResult.success) {
     throw new ModelOutputError("Analyzer returned schema-invalid output", {
       issues: formatZodIssues(parsedResult.error.issues)
@@ -178,14 +193,21 @@ function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput, request: Analyze
   }
 
   const resultWithServiceValidation = applyServiceValidation(parsedResult.data);
-  return applyCitationPreference(resultWithServiceValidation, request);
+  const finalResult = applyCitationPreference(resultWithServiceValidation, request);
+  const parsedFinalResult = analyzeResponseSchema.safeParse(finalResult);
+
+  if (!parsedFinalResult.success) {
+    throw new ModelOutputError("Service failed to construct a schema-valid response", {
+      issues: formatZodIssues(parsedFinalResult.error.issues)
+    });
+  }
+
+  return parsedFinalResult.data;
 }
 
-function applyServiceValidation(result: AnalyzeResponse): AnalyzeResponse {
+function applyServiceValidation(result: AnalyzeModelOutput): AnalyzeResponse {
   const groundingRecordsFound = countUniqueCitations(result);
-  const numericReconciliationPassed = result.drivers.every(
-    (driver) => driver.amount === undefined || (Number.isFinite(driver.amount) && driver.currency !== undefined)
-  );
+  const numericReconciliationPassed = hasDeterministicNumericReconciliation(result);
 
   return {
     ...result,
@@ -212,7 +234,7 @@ function applyCitationPreference(result: AnalyzeResponse, request: AnalyzeReques
   };
 }
 
-function countUniqueCitations(result: AnalyzeResponse) {
+function countUniqueCitations(result: AnalyzeModelOutput) {
   const citationKeys = new Set<string>();
 
   for (const citation of result.citations) {
@@ -226,4 +248,20 @@ function countUniqueCitations(result: AnalyzeResponse) {
   }
 
   return citationKeys.size;
+}
+
+function hasDeterministicNumericReconciliation(result: AnalyzeModelOutput) {
+  const amountDrivers = result.drivers.filter((driver) => driver.amount !== undefined);
+
+  if (amountDrivers.length === 0) {
+    return false;
+  }
+
+  return amountDrivers.every((driver) => {
+    if (driver.amount === undefined || !Number.isFinite(driver.amount) || driver.currency === undefined) {
+      return false;
+    }
+
+    return (driver.citations ?? []).some((citation) => RECONCILIATION_SOURCE_TYPES.has(citation.source_type));
+  });
 }

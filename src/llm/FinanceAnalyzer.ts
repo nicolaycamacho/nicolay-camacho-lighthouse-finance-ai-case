@@ -1,11 +1,11 @@
-import type { AnalyzeRequest, AnalyzeResponse } from "../schemas/analyze";
+import type { AnalyzeModelOutput, FinanceAnalyzerRequest } from "../schemas/analyze";
 
 export interface FinanceAnalyzerOptions {
   runId?: string;
   signal?: AbortSignal;
 }
 
-export type FinanceAnalyzerOutput = AnalyzeResponse | string;
+export type FinanceAnalyzerOutput = AnalyzeModelOutput | string;
 
 /**
  * Provider-backed adapters own provider error normalization. Known transient
@@ -14,9 +14,11 @@ export type FinanceAnalyzerOutput = AnalyzeResponse | string;
  * adapter/programmer bugs should throw normally so they remain 500s and are
  * not retried as provider outages.
  *
- * Adapters should return full evidence citations to the service. The route owns
- * client-facing citation suppression and service-derived validation metadata.
+ * Adapters receive an internal request without presentation-only fields such as
+ * include_citations. They should return full evidence citations to the service.
+ * The route owns client-facing citation suppression and service-derived
+ * validation metadata.
  */
 export interface FinanceAnalyzer {
-  analyze(request: AnalyzeRequest, options?: FinanceAnalyzerOptions): Promise<FinanceAnalyzerOutput>;
+  analyze(request: FinanceAnalyzerRequest, options?: FinanceAnalyzerOptions): Promise<FinanceAnalyzerOutput>;
 }

@@ -155,7 +155,7 @@ event: done
 
 - The mock analyzer keeps the submission runnable without secrets or vendor setup.
 - Zod validates both input and output so the API contract is enforceable in tests and runtime.
-- The route owns response validation metadata; analyzers provide content, not final schema/reconciliation truth.
+- The route owns response validation metadata; analyzers provide content and full evidence, not final schema/reconciliation truth.
 - Retry and timeout wrappers exist at the route boundary, where provider-backed analyzers would be called.
 - SSE is finance-safe: the final answer is one schema-valid object, not a stream of partially trusted JSON.
 

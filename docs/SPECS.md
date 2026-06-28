@@ -155,7 +155,8 @@ Mappings:
 - `materiality_threshold`, if present, must be non-negative.
 - Unknown top-level request fields are rejected.
 - Successful responses are validated with Zod before return.
-- Response `validation` metadata is service-owned. The route overwrites model/analyzer-supplied flags after schema validation.
+- Raw analyzer/model output omits `validation`; response `validation` metadata is service-owned and added by the route after raw output schema validation.
+- `numeric_reconciliation_passed` requires amount-bearing drivers with currency and trusted deterministic evidence. It is `false` for no-amount summaries or ungrounded numeric claims.
 - `include_citations: false` suppresses returned citation arrays, but `validation.grounding_records_found` can still report the internally retrieved evidence count.
 
 ## Non-Goals

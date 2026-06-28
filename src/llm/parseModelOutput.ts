@@ -1,7 +1,7 @@
 import { ModelOutputError, formatZodIssues } from "../errors";
-import { analyzeResponseSchema, type AnalyzeResponse } from "../schemas/analyze";
+import { analyzeModelOutputSchema, type AnalyzeModelOutput } from "../schemas/analyze";
 
-export function parseModelOutput(raw: string): AnalyzeResponse {
+export function parseModelOutput(raw: string): AnalyzeModelOutput {
   let parsed: unknown;
 
   try {
@@ -12,7 +12,7 @@ export function parseModelOutput(raw: string): AnalyzeResponse {
     });
   }
 
-  const result = analyzeResponseSchema.safeParse(parsed);
+  const result = analyzeModelOutputSchema.safeParse(parsed);
   if (!result.success) {
     throw new ModelOutputError("Model output failed response schema validation", {
       issues: formatZodIssues(result.error.issues)

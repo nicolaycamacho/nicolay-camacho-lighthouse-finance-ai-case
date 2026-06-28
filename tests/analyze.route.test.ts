@@ -246,19 +246,10 @@ describe("analyze routes", () => {
     expect(response.body.validation.grounding_records_found).toBe(3);
   });
 
-  it("overwrites analyzer-supplied validation metadata at the service boundary", async () => {
+  it("constructs service-owned validation metadata for analyzer output that omits it", async () => {
     const analyzer: FinanceAnalyzer = {
       async analyze() {
-        const response = await new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_service_validation" });
-
-        return {
-          ...response,
-          validation: {
-            schema_valid: false,
-            grounding_records_found: 999,
-            numeric_reconciliation_passed: false
-          }
-        };
+        return new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_service_validation" });
       }
     };
 
@@ -271,7 +262,65 @@ describe("analyze routes", () => {
     });
   });
 
-  it("derives numeric reconciliation from validated response fields", async () => {
+  it("rejects analyzer output that includes service-owned validation metadata", async () => {
+    const analyzer: FinanceAnalyzer = {
+      async analyze() {
+        const response = await new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_model_validation" });
+
+        return {
+          ...response,
+          validation: {
+            schema_valid: false,
+            grounding_records_found: 999,
+            numeric_reconciliation_passed: true
+          }
+        } as never;
+      }
+    };
+
+    const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(502);
+
+    expect(response.body.error.type).toBe("model_output_invalid");
+  });
+
+  it("accepts raw model JSON without service-owned validation metadata", async () => {
+    const analyzer: FinanceAnalyzer = {
+      async analyze() {
+        const response = await new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_raw_without_validation" });
+        return JSON.stringify(response);
+      }
+    };
+
+    const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(200);
+
+    expect(response.body.run_id).toBe("ana_raw_without_validation");
+    expect(response.body.validation.schema_valid).toBe(true);
+    expect(response.body.validation.grounding_records_found).toBe(3);
+  });
+
+  it("does not pass presentation-only citation preferences to analyzers", async () => {
+    let observedRequest: unknown;
+    const analyzer: FinanceAnalyzer = {
+      async analyze(request) {
+        observedRequest = request;
+        return new MockFinanceAnalyzer().analyze(request, { runId: "ana_internal_request" });
+      }
+    };
+
+    const response = await request(createTestApp(analyzer))
+      .post("/analyze")
+      .send({
+        ...validRequest,
+        include_citations: false
+      })
+      .expect(200);
+
+    expect(observedRequest).not.toHaveProperty("include_citations");
+    expect(response.body.citations).toEqual([]);
+    expect(response.body.validation.grounding_records_found).toBe(3);
+  });
+
+  it("requires deterministic evidence for numeric reconciliation", async () => {
     const analyzer: FinanceAnalyzer = {
       async analyze() {
         const response = await new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_numeric_validation" });
@@ -286,20 +335,34 @@ describe("analyze routes", () => {
           drivers: [
             {
               ...firstDriver,
-              currency: undefined
+              citations: [
+                {
+                  source_type: "model_claim",
+                  source_record_id: "unverified_amount"
+                }
+              ]
             },
             ...remainingDrivers
-          ],
-          validation: {
-            schema_valid: true,
-            grounding_records_found: 3,
-            numeric_reconciliation_passed: true
-          }
+          ]
         };
       }
     };
 
     const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(200);
+
+    expect(response.body.validation.numeric_reconciliation_passed).toBe(false);
+  });
+
+  it("does not mark no-amount summaries as numerically reconciled", async () => {
+    const response = await request(app)
+      .post("/analyze")
+      .send({
+        query: "Summarize close readiness for the UK entity.",
+        analysis_type: "close_summary",
+        entity_id: "uk_01",
+        period: "2026-05"
+      })
+      .expect(200);
 
     expect(response.body.validation.numeric_reconciliation_passed).toBe(false);
   });

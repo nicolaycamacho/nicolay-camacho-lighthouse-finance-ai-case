@@ -48,7 +48,7 @@ const recommendedActionSchema = z
   })
   .strict();
 
-export const analyzeResponseSchema = z
+const responseEnvelopeSchema = z
   .object({
     run_id: z.string().min(1),
     analysis_type: analysisTypeSchema,
@@ -63,13 +63,6 @@ export const analyzeResponseSchema = z
       })
       .strict(),
     citations: z.array(citationSchema),
-    validation: z
-      .object({
-        schema_valid: z.boolean(),
-        grounding_records_found: z.number().int().nonnegative(),
-        numeric_reconciliation_passed: z.boolean()
-      })
-      .strict(),
     review_required: z.boolean(),
     audit: z
       .object({
@@ -78,9 +71,24 @@ export const analyzeResponseSchema = z
         prompt_version: z.string().min(1)
       })
       .strict()
+  });
+
+export const analyzeModelOutputSchema = responseEnvelopeSchema.strict();
+
+export const analyzeResponseSchema = responseEnvelopeSchema
+  .extend({
+    validation: z
+      .object({
+        schema_valid: z.boolean(),
+        grounding_records_found: z.number().int().nonnegative(),
+        numeric_reconciliation_passed: z.boolean()
+      })
+      .strict()
   })
   .strict();
 
 export type AnalysisType = z.infer<typeof analysisTypeSchema>;
 export type AnalyzeRequest = z.infer<typeof analyzeRequestSchema>;
+export type FinanceAnalyzerRequest = Omit<AnalyzeRequest, "include_citations">;
+export type AnalyzeModelOutput = z.infer<typeof analyzeModelOutputSchema>;
 export type AnalyzeResponse = z.infer<typeof analyzeResponseSchema>;

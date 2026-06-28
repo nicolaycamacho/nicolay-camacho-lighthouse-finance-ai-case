@@ -27,9 +27,9 @@ The response schema is explicit:
 - review requirements;
 - audit metadata.
 
-`src/llm/parseModelOutput.ts` shows how raw provider JSON would be parsed and validated. If JSON parsing fails or schema validation fails, the service raises a `ModelOutputError`, which maps to a `502` response after retry exhaustion.
+`src/llm/parseModelOutput.ts` shows how raw provider JSON would be parsed and validated. Raw analyzer/model output omits service-owned `validation` metadata. If JSON parsing fails or raw output schema validation fails, the service raises a `ModelOutputError`, which maps to a `502` response after retry exhaustion.
 
-The analyzer/model does not own the response `validation` metadata. After the response shape is validated, the route overwrites `schema_valid`, derives `grounding_records_found` from actual citation records, and derives `numeric_reconciliation_passed` from the validated numeric driver fields before applying any client-facing citation suppression.
+The analyzer/model does not own the response `validation` metadata. After raw output is validated, the route adds `schema_valid`, derives `grounding_records_found` from actual citation records, and sets `numeric_reconciliation_passed` only when every amount-bearing driver has currency plus trusted deterministic evidence. No-amount summaries and ungrounded numeric claims default to `false`. Only after that does the route apply client-facing citation suppression.
 
 ## 4. Streaming + Structured Output Constraint
 

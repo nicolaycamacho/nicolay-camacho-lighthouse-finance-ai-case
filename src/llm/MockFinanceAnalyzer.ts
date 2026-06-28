@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { AnalyzeRequest, AnalyzeResponse } from "../schemas/analyze";
+import type { AnalyzeModelOutput, FinanceAnalyzerRequest } from "../schemas/analyze";
 import type { FinanceAnalyzer, FinanceAnalyzerOptions } from "./FinanceAnalyzer";
 
 export function createRunId() {
@@ -8,7 +8,7 @@ export function createRunId() {
 }
 
 export class MockFinanceAnalyzer implements FinanceAnalyzer {
-  async analyze(request: AnalyzeRequest, options?: FinanceAnalyzerOptions): Promise<AnalyzeResponse> {
+  async analyze(request: FinanceAnalyzerRequest, options?: FinanceAnalyzerOptions): Promise<AnalyzeModelOutput> {
     const runId = options?.runId ?? createRunId();
     const entity = request.entity_id ?? "selected_entity";
     const period = request.period ?? "latest_close_period";
@@ -35,14 +35,6 @@ function baseAudit() {
   };
 }
 
-function buildValidation(citationCount: number) {
-  return {
-    schema_valid: true,
-    grounding_records_found: citationCount,
-    numeric_reconciliation_passed: true
-  };
-}
-
 function maybeDriverCitations(
   includeCitations: boolean,
   citations: Array<{ source_type: string; source_record_id: string }>
@@ -58,13 +50,13 @@ function maybeTopLevelCitations(
 }
 
 function buildVarianceResponse(
-  request: AnalyzeRequest,
+  request: FinanceAnalyzerRequest,
   runId: string,
   entity: string,
   period: string,
   threshold: number,
   includeCitations: boolean
-): AnalyzeResponse {
+): AnalyzeModelOutput {
   const varianceCitation = { source_type: "warehouse_model", source_record_id: `variance_${entity}_${period}_marketing_opex` };
   const agencyCitation = { source_type: "netsuite_suiteql", source_record_id: `vendor_bill_${entity}_${period}_agency_1842` };
   const brexCitation = { source_type: "brex_transaction", source_record_id: `brex_${entity}_${period}_paid_social_771` };
@@ -126,19 +118,18 @@ function buildVarianceResponse(
       ]
     },
     citations: maybeTopLevelCitations(includeCitations, citations),
-    validation: buildValidation(citations.length),
     review_required: true,
     audit: baseAudit()
   };
 }
 
 function buildExpenseExceptionResponse(
-  request: AnalyzeRequest,
+  request: FinanceAnalyzerRequest,
   runId: string,
   entity: string,
   period: string,
   includeCitations: boolean
-): AnalyzeResponse {
+): AnalyzeModelOutput {
   const brexCitation = { source_type: "brex_transaction", source_record_id: `brex_${entity}_${period}_receipt_missing_2104` };
   const apCaseCitation = { source_type: "ap_case", source_record_id: request.case_ids?.[0] ?? `ap_case_${entity}_${period}_448` };
   const policyCitation = { source_type: "policy_document", source_record_id: "travel_meals_policy_v3" };
@@ -200,19 +191,18 @@ function buildExpenseExceptionResponse(
       ]
     },
     citations: maybeTopLevelCitations(includeCitations, citations),
-    validation: buildValidation(citations.length),
     review_required: true,
     audit: baseAudit()
   };
 }
 
 function buildCloseSummaryResponse(
-  request: AnalyzeRequest,
+  request: FinanceAnalyzerRequest,
   runId: string,
   entity: string,
   period: string,
   includeCitations: boolean
-): AnalyzeResponse {
+): AnalyzeModelOutput {
   const closeHealthCitation = { source_type: "warehouse_model", source_record_id: `close_health_${entity}_${period}` };
   const blockerCitation = { source_type: "ap_case_queue", source_record_id: `open_blockers_${entity}_${period}` };
   const trialBalanceCitation = { source_type: "netsuite_suiteql", source_record_id: `trial_balance_${entity}_${period}` };
@@ -270,7 +260,6 @@ function buildCloseSummaryResponse(
       ]
     },
     citations: maybeTopLevelCitations(includeCitations, citations),
-    validation: buildValidation(citations.length),
     review_required: true,
     audit: baseAudit()
   };
