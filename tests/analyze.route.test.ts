@@ -139,7 +139,7 @@ describe("analyze routes", () => {
     expect(response.body.error.type).toBe("model_output_invalid");
   });
 
-  it("maps upstream analyzer failures to 503 after retry", async () => {
+  it("maps adapter-translated upstream analyzer failures to 503 after retry", async () => {
     let attempts = 0;
     const analyzer: FinanceAnalyzer = {
       async analyze() {
@@ -152,6 +152,21 @@ describe("analyze routes", () => {
 
     expect(response.body.error.type).toBe("upstream_unavailable");
     expect(attempts).toBe(2);
+  });
+
+  it("keeps unexpected analyzer errors as 500 without retrying", async () => {
+    let attempts = 0;
+    const analyzer: FinanceAnalyzer = {
+      async analyze() {
+        attempts += 1;
+        throw new Error("adapter mapping bug");
+      }
+    };
+
+    const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(500);
+
+    expect(response.body.error.type).toBe("internal_error");
+    expect(attempts).toBe(1);
   });
 
   it("maps timeout failures to 408 without retrying", async () => {

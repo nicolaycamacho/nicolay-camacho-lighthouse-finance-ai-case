@@ -48,10 +48,12 @@ The service separates HTTP-layer and LLM/model-layer errors:
 - invalid request -> `400 validation_error`;
 - timeout -> `408 timeout`;
 - malformed model output -> `502 model_output_invalid`;
-- transient provider/runtime failure -> `503 upstream_unavailable`;
+- adapter-translated transient provider/runtime failure -> `503 upstream_unavailable`;
 - unexpected failure -> `500 internal_error`.
 
 Analyzer calls receive an `AbortSignal`. The timeout wrapper aborts that signal before returning `408`, and the route also aborts it when the client disconnects before the response is complete. Real provider adapters should pass the signal into their HTTP, SDK, or query client so timed-out work can stop consuming sockets, latency, and provider budget.
+
+Provider adapters should translate known transient SDK, network, rate-limit, and provider availability failures to `UpstreamLLMError`. Unknown mapping or programmer bugs should remain plain errors, returning `500 internal_error` without retry.
 
 All errors return:
 

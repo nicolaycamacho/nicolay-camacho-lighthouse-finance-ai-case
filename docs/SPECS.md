@@ -110,7 +110,13 @@ event: ack
 data: {"run_id":"ana_..."}
 
 event: status
-data: {"message":"validating request"}
+data: {"message":"request validated"}
+
+event: status
+data: {"message":"retrieving deterministic finance context"}
+
+event: narrative_delta
+data: {"text":"Summarizing close readiness across deterministic variance and blocker signals."}
 
 event: result
 data: {...}
@@ -138,7 +144,7 @@ Mappings:
 - oversized request body -> `413 request_body_too_large`;
 - timeout -> `408 timeout`;
 - malformed model output -> `502 model_output_invalid`;
-- transient provider/runtime failure -> `503 upstream_unavailable`;
+- adapter-translated transient provider/runtime failure -> `503 upstream_unavailable`;
 - unexpected failure -> `500 internal_error`.
 
 ## Validation Rules

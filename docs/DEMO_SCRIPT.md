@@ -67,7 +67,7 @@ The stream sends progress and narrative events first, then one final schema-vali
 
 ## 7. Explain Failure Handling
 
-Invalid input returns `400 validation_error`. Timeouts return `408 timeout`. Schema-invalid model output maps to `502 model_output_invalid`. Provider failures map to `503 upstream_unavailable`.
+Invalid input returns `400 validation_error`. Timeouts return `408 timeout`. Schema-invalid model output maps to `502 model_output_invalid`. Adapter-translated provider failures map to `503 upstream_unavailable`.
 
 ## 8. Explain Production Path
 
