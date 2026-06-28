@@ -1,7 +1,9 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { app } from "../src/app";
+import { app, createApp } from "../src/app";
+import type { FinanceAnalyzer } from "../src/llm/FinanceAnalyzer";
+import { AnthropicFinanceAnalyzer } from "../src/llm/AnthropicFinanceAnalyzer";
 import { analyzeResponseSchema } from "../src/schemas/analyze";
 
 const validRequest = {
@@ -10,6 +12,10 @@ const validRequest = {
   entity_id: "uk_01",
   period: "2026-05"
 };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("SSE analyze route", () => {
   it("POST /analyze?stream=true returns the expected event stream", async () => {
@@ -75,6 +81,102 @@ describe("SSE analyze route", () => {
       });
       expect(JSON.stringify(narrativeEvent.data)).not.toContain("Found ");
     }
+  });
+
+  it("keeps streamed result envelope aligned with the service ack for live providers", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                run_id: "model_chosen_run_id",
+                analysis_type: "variance",
+                status: "needs_review",
+                summary: "Demo close summary needs review.",
+                drivers: [],
+                recommended_actions: [
+                  {
+                    action_type: "draft_commentary",
+                    priority: "medium",
+                    text: "Review demo output."
+                  }
+                ],
+                confidence: {
+                  overall: 0.6,
+                  reasons: ["Demo context only."]
+                },
+                citations: [],
+                review_required: true,
+                audit: {
+                  generated_at: "2026-06-28T00:00:00.000Z",
+                  model_name: "model-chosen-name",
+                  prompt_version: "model-chosen-prompt"
+                }
+              })
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+    const analyzer = new AnthropicFinanceAnalyzer("test-key", {
+      model: "claude-test",
+      endpoint: "https://example.test/messages"
+    });
+
+    const response = await request(createApp(analyzer)).post("/analyze?stream=true").send(validRequest).expect(200);
+    const events = parseSseEvents(response.text);
+    const ackData = eventAt(events, 0).data as { run_id: string };
+    const result = analyzeResponseSchema.parse(eventAt(events, 4).data);
+
+    expect(result.run_id).toBe(ackData.run_id);
+    expect(result.run_id).not.toBe("model_chosen_run_id");
+    expect(result.analysis_type).toBe("close_summary");
+    expect(result.audit.model_name).toBe("claude-test");
+    expect(result.audit.prompt_version).toBe("finance-close-command-centre-live-v1");
+  });
+
+  it("keeps streamed result run_id aligned with the service ack for generic analyzers", async () => {
+    const analyzer: FinanceAnalyzer = {
+      async analyze() {
+        return {
+          run_id: "analyzer_chosen_run_id",
+          analysis_type: "variance",
+          status: "needs_review",
+          summary: "Demo close summary needs review.",
+          drivers: [],
+          recommended_actions: [
+            {
+              action_type: "draft_commentary",
+              priority: "medium",
+              text: "Review demo output."
+            }
+          ],
+          confidence: {
+            overall: 0.6,
+            reasons: ["Demo context only."]
+          },
+          citations: [],
+          review_required: true,
+          audit: {
+            generated_at: "2026-06-28T00:00:00.000Z",
+            model_name: "test-analyzer",
+            prompt_version: "test-prompt"
+          }
+        };
+      }
+    };
+
+    const response = await request(createApp(analyzer)).post("/analyze?stream=true").send(validRequest).expect(200);
+    const events = parseSseEvents(response.text);
+    const ackData = eventAt(events, 0).data as { run_id: string };
+    const result = analyzeResponseSchema.parse(eventAt(events, 4).data);
+
+    expect(result.run_id).toBe(ackData.run_id);
+    expect(result.run_id).not.toBe("analyzer_chosen_run_id");
+    expect(result.analysis_type).toBe("close_summary");
   });
 });
 

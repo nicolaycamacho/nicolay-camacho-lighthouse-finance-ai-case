@@ -74,6 +74,19 @@ export class UpstreamLLMError extends AppError {
   }
 }
 
+export class ProviderConfigurationError extends AppError {
+  constructor(message = "LLM provider configuration or request is invalid", details?: ErrorDetails) {
+    super({
+      type: "provider_configuration_error",
+      message,
+      statusCode: 502,
+      retryable: false,
+      details,
+      layer: "llm"
+    });
+  }
+}
+
 export class TimeoutError extends AppError {
   constructor(message = "Analysis request timed out", details?: ErrorDetails) {
     super({

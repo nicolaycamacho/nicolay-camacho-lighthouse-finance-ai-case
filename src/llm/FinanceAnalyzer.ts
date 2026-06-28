@@ -15,9 +15,12 @@ export type FinanceAnalyzerOutput = AnalyzeModelOutput | string;
  * not retried as provider outages.
  *
  * Adapters receive an internal request without presentation-only fields such as
- * include_citations. They should return full evidence citations to the service.
- * The route owns client-facing citation suppression and service-derived
- * validation metadata.
+ * include_citations. Retrieval-backed adapters should return full
+ * service-owned evidence citations to the route, which owns client-facing
+ * citation suppression and service-derived validation metadata. Demo live
+ * provider adapters that do not have a deterministic retrieval layer must
+ * return no citations rather than treating model-authored references as
+ * grounding evidence.
  */
 export interface FinanceAnalyzer {
   analyze(request: FinanceAnalyzerRequest, options?: FinanceAnalyzerOptions): Promise<FinanceAnalyzerOutput>;

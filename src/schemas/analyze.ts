@@ -75,6 +75,14 @@ const responseEnvelopeSchema = z
 
 export const analyzeModelOutputSchema = responseEnvelopeSchema.strict();
 
+export const analyzeModelContentSchema = responseEnvelopeSchema
+  .omit({
+    run_id: true,
+    analysis_type: true,
+    audit: true
+  })
+  .strip();
+
 export const analyzeResponseSchema = responseEnvelopeSchema
   .extend({
     validation: z
@@ -91,4 +99,5 @@ export type AnalysisType = z.infer<typeof analysisTypeSchema>;
 export type AnalyzeRequest = z.infer<typeof analyzeRequestSchema>;
 export type FinanceAnalyzerRequest = Omit<AnalyzeRequest, "include_citations">;
 export type AnalyzeModelOutput = z.infer<typeof analyzeModelOutputSchema>;
+export type AnalyzeModelContent = z.infer<typeof analyzeModelContentSchema>;
 export type AnalyzeResponse = z.infer<typeof analyzeResponseSchema>;

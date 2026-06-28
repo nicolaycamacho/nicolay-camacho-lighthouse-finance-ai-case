@@ -1,9 +1,10 @@
 import express, { type ErrorRequestHandler } from "express";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "../src/app";
 import { toErrorResponse, toHttpError, UpstreamLLMError } from "../src/errors";
+import { AnthropicFinanceAnalyzer } from "../src/llm/AnthropicFinanceAnalyzer";
 import type { FinanceAnalyzer } from "../src/llm/FinanceAnalyzer";
 import { MockFinanceAnalyzer } from "../src/llm/MockFinanceAnalyzer";
 import { createAnalyzeRouter } from "../src/routes/analyze";
@@ -17,6 +18,10 @@ const validRequest: AnalyzeRequest = {
   materiality_threshold: 25000,
   include_citations: true
 };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("analyze routes", () => {
   it("GET /health returns ok", async () => {
@@ -379,6 +384,81 @@ describe("analyze routes", () => {
     const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(200);
 
     expect(response.body.validation.numeric_reconciliation_passed).toBe(false);
+  });
+
+  it("does not count live Anthropic model citations as service-owned grounding", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                run_id: "ana_live_grounding",
+                analysis_type: "variance",
+                status: "needs_review",
+                summary: "Demo variance needs review.",
+                drivers: [
+                  {
+                    rank: 1,
+                    driver_type: "demo_variance_driver",
+                    label: "Marketing Opex",
+                    amount: 123.45,
+                    currency: "USD",
+                    explanation: "Model tried to invent citation records.",
+                    citations: [
+                      {
+                        source_type: "warehouse_model",
+                        source_record_id: "invented_warehouse_row"
+                      }
+                    ]
+                  }
+                ],
+                recommended_actions: [
+                  {
+                    action_type: "draft_commentary",
+                    priority: "medium",
+                    text: "Review before sharing."
+                  }
+                ],
+                confidence: {
+                  overall: 0.6,
+                  reasons: ["Demo context only."]
+                },
+                citations: [
+                  {
+                    source_type: "demo_context",
+                    source_record_id: "invented_demo_context"
+                  }
+                ],
+                review_required: true,
+                audit: {
+                  generated_at: "2026-06-28T00:00:00.000Z",
+                  model_name: "claude-test",
+                  prompt_version: "finance-close-command-centre-live-v1"
+                }
+              })
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+
+    const analyzer = new AnthropicFinanceAnalyzer("test-key", {
+      model: "claude-test",
+      endpoint: "https://example.test/messages"
+    });
+
+    const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(200);
+
+    expect(response.body.citations).toEqual([]);
+    expect(response.body.drivers[0].citations).toEqual([]);
+    expect(response.body.validation).toEqual({
+      schema_valid: true,
+      grounding_records_found: 0,
+      numeric_reconciliation_passed: false
+    });
   });
 
   it("does not mark no-amount summaries as numerically reconciled", async () => {

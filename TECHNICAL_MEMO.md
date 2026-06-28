@@ -12,6 +12,14 @@ The local demo uses a mock analyzer. In production, I would use Anthropic or Gem
 
 Provider-native schema enforcement is useful but not sufficient. The application still needs Zod validation because finance workflows require clear contracts, testable failure modes, and protection against malformed or incomplete model output.
 
+### Provider Selection
+
+The service selects its analyzer through `LLM_PROVIDER`. Missing provider config or `LLM_PROVIDER=mock` uses the deterministic mock path so the submission is reproducible without secrets. `LLM_PROVIDER=anthropic` enables an optional live-demo adapter, with the API key read only from `ANTHROPIC_API_KEY`.
+
+Both provider paths pass through application-side schema validation. The live adapter asks Anthropic for strict JSON, parses it with `parseModelOutput`, and the route still derives service-owned validation metadata before returning a response. It forwards only whitelisted request fields and omits arbitrary request `context` from the provider prompt. This keeps provider-native JSON controls as a convenience, not the final contract.
+
+Because the optional live adapter has no real deterministic finance retrieval, it strips model-produced citations rather than pretending generated warehouse, ERP, or demo citations are proof. That keeps grounding counts and numeric reconciliation false unless the service has supplied actual trusted evidence records.
+
 ## 3. Structured Output Strategy
 
 The response schema is explicit:
@@ -29,7 +37,7 @@ The response schema is explicit:
 
 `src/llm/parseModelOutput.ts` shows how raw provider JSON would be parsed and validated. Raw analyzer/model output omits service-owned `validation` metadata. If JSON parsing fails or raw output schema validation fails, the service raises a `ModelOutputError`, which maps to a `502` response after retry exhaustion.
 
-The analyzer/model does not own the response `validation` metadata. After raw output is validated, the route adds `schema_valid`, derives `grounding_records_found` from actual citation records, and sets `numeric_reconciliation_passed` only when every amount-bearing driver has currency plus trusted deterministic evidence. No-amount summaries and ungrounded numeric claims default to `false`. Only after that does the route apply client-facing citation suppression.
+The analyzer/model does not own the response `validation` metadata. After raw output is validated, the route adds `schema_valid`, derives `grounding_records_found` from service-owned citation records, and sets `numeric_reconciliation_passed` only when every amount-bearing driver has currency plus trusted deterministic evidence. The optional live adapter strips model-produced citations because it has no retrieval layer. No-amount summaries and ungrounded numeric claims default to `false`. Only after that does the route apply client-facing citation suppression.
 
 ## 4. Streaming + Structured Output Constraint
 
@@ -50,12 +58,13 @@ The service separates HTTP-layer and LLM/model-layer errors:
 - invalid request -> `400 validation_error`;
 - timeout -> `408 timeout`;
 - malformed model output -> `502 model_output_invalid`;
+- non-retryable provider/client configuration failure -> `502 provider_configuration_error`;
 - adapter-translated transient provider/runtime failure -> `503 upstream_unavailable`;
 - unexpected failure -> `500 internal_error`.
 
 Analyzer calls receive an `AbortSignal`. The timeout wrapper aborts that signal before returning `408`, and the route also aborts it when the client disconnects before the response is complete. Real provider adapters should pass the signal into their HTTP, SDK, or query client so timed-out work can stop consuming sockets, latency, and provider budget.
 
-Provider adapters should translate known transient SDK, network, rate-limit, and provider availability failures to `UpstreamLLMError`. Unknown mapping or programmer bugs should remain plain errors, returning `500 internal_error` without retry.
+Provider adapters should translate known transient SDK, network, rate-limit, and provider availability failures to `UpstreamLLMError`. Provider/client configuration failures, such as Anthropic 400, 401, or 403 responses, should become non-retryable `ProviderConfigurationError`. Unknown mapping or programmer bugs should remain plain errors, returning `500 internal_error` without retry.
 
 All errors return:
 
@@ -72,7 +81,7 @@ All errors return:
 
 ## 6. Known Limitations
 
-- No real NetSuite, Brex, warehouse, Anthropic, or Gemini integration is included.
+- No real NetSuite, Brex, warehouse, or Google Drive integration is included. Anthropic is optional live-demo mode and still uses demo finance context rather than live Lighthouse systems.
 - No auth, RBAC, persistence, queues, rate limits, or human review UI.
 - Citations are realistic identifiers, not live links.
 - The mock analyzer uses deterministic examples rather than customer data.

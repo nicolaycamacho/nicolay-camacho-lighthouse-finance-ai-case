@@ -81,6 +81,21 @@ Build/type-check:
 npm run build
 ```
 
+Current local validation:
+
+- `npm run build` passes.
+- `npm test` passes with 8 test files and 59 tests.
+
+## LLM Provider Modes
+
+`LLM_PROVIDER=mock` is the default and recommended reviewer mode. It uses the deterministic `MockFinanceAnalyzer`, requires no API keys, and keeps the submission reproducible.
+
+`LLM_PROVIDER=anthropic` is optional live-demo mode. It uses a local `ANTHROPIC_API_KEY` environment variable and does not require source-code changes. No API keys are committed, arbitrary request `context` is not forwarded, and model-produced citations are stripped so live mode cannot inflate grounding or reconciliation metadata.
+
+If `LLM_PROVIDER=anthropic` is set without `ANTHROPIC_API_KEY`, the service fails fast at startup with a clear configuration error. Request-time provider/client rejections, such as invalid keys, use the structured `502 provider_configuration_error` response.
+
+Both modes use the same route contract, Zod validation path, SSE behavior, retry behavior, timeout behavior, and error taxonomy. See `src/llm/README.md` for the adapter boundary and live-provider commands.
+
 ## Demo: Standard JSON Response
 
 ```bash
@@ -188,6 +203,7 @@ event: done
 ## Design Trade-offs
 
 - The mock analyzer keeps the submission runnable without secrets or vendor setup.
+- The optional Anthropic adapter is isolated behind the same `FinanceAnalyzer` interface for interview demos.
 - Zod validates both input and output so the API contract is enforceable in tests and runtime.
 - The route owns response validation metadata; analyzers provide content and full evidence, not final schema/reconciliation truth.
 - Retry and timeout wrappers exist at the route boundary, where provider-backed analyzers would be called.
@@ -195,7 +211,8 @@ event: done
 
 ## Known Limitations
 
-- The analyzer uses deterministic mock data instead of live NetSuite, Brex, warehouse, or LLM calls.
+- The default analyzer uses deterministic mock data instead of live NetSuite, Brex, warehouse, or LLM calls.
+- Anthropic mode is optional and still uses demo finance context rather than live Lighthouse systems.
 - There is no auth, RBAC, queueing, persistence, audit-log database, or human review UI.
 - Citations are evidence-shaped identifiers, not real deep links.
 - The service is designed for a case-study demo, not production traffic.

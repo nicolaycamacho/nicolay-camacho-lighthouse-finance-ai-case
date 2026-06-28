@@ -3,7 +3,7 @@ import { Router, type Response } from "express";
 import { parseAnalysisTimeoutMs } from "../config";
 import { ModelOutputError, ValidationError, formatZodIssues, toErrorResponse, toHttpError } from "../errors";
 import type { FinanceAnalyzer, FinanceAnalyzerOutput } from "../llm/FinanceAnalyzer";
-import { MockFinanceAnalyzer, createRunId } from "../llm/MockFinanceAnalyzer";
+import { createRunId } from "../llm/MockFinanceAnalyzer";
 import { parseModelOutput } from "../llm/parseModelOutput";
 import { retry } from "../lib/retry";
 import { setSseHeaders, writeSseEvent } from "../lib/sse";
@@ -18,10 +18,7 @@ import {
   type FinanceAnalyzerRequest
 } from "../schemas/analyze";
 
-const defaultAnalyzer = new MockFinanceAnalyzer();
 const RECONCILIATION_SOURCE_TYPES = new Set(["warehouse_model", "netsuite_suiteql", "brex_transaction", "ap_case"]);
-
-export const analyzeRouter = createAnalyzeRouter(defaultAnalyzer);
 
 export function createAnalyzeRouter(analyzer: FinanceAnalyzer) {
   const router = Router();
@@ -77,7 +74,7 @@ async function runAnalyze(analyzer: FinanceAnalyzer, request: AnalyzeRequest, ru
           { abortController }
         );
 
-        return normalizeAnalyzerOutput(rawResult, request);
+        return normalizeAnalyzerOutput(rawResult, request, runId);
       },
       {
         maxAttempts: 2,
@@ -183,7 +180,7 @@ function toFinanceAnalyzerRequest(request: AnalyzeRequest): FinanceAnalyzerReque
   return analyzerRequest;
 }
 
-function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput, request: AnalyzeRequest) {
+function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput, request: AnalyzeRequest, expectedRunId?: string) {
   const analyzerResult = typeof output === "string" ? parseModelOutput(output) : output;
   const parsedResult = analyzeModelOutputSchema.safeParse(analyzerResult);
   if (!parsedResult.success) {
@@ -192,7 +189,8 @@ function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput, request: Analyze
     });
   }
 
-  const resultWithServiceValidation = applyServiceValidation(parsedResult.data);
+  const resultWithServiceEnvelope = applyServiceEnvelope(parsedResult.data, request, expectedRunId);
+  const resultWithServiceValidation = applyServiceValidation(resultWithServiceEnvelope);
   const finalResult = applyCitationPreference(resultWithServiceValidation, request);
   const parsedFinalResult = analyzeResponseSchema.safeParse(finalResult);
 
@@ -203,6 +201,18 @@ function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput, request: Analyze
   }
 
   return parsedFinalResult.data;
+}
+
+function applyServiceEnvelope(
+  result: AnalyzeModelOutput,
+  request: AnalyzeRequest,
+  expectedRunId?: string
+): AnalyzeModelOutput {
+  return {
+    ...result,
+    run_id: expectedRunId ?? result.run_id,
+    analysis_type: request.analysis_type
+  };
 }
 
 function applyServiceValidation(result: AnalyzeModelOutput): AnalyzeResponse {

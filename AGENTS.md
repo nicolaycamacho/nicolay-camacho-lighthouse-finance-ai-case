@@ -30,7 +30,8 @@ The product is a Close Command Centre for Finance. Deterministic systems own acc
 - Do not add a frontend.
 - Do not add a database.
 - Do not add auth.
-- Do not add real NetSuite, Brex, Anthropic, or Gemini integrations for this exercise.
+- Do not add real NetSuite, Brex, warehouse, Drive, or Gemini integrations for this exercise.
+- Optional live-demo LLM provider adapters may exist only when disabled by default, never required for local execution, and constrained to demo-safe request fields.
 - Do not require API keys for local execution.
 
 ## Review Checklist
