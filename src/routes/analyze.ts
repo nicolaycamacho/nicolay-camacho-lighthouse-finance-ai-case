@@ -91,6 +91,7 @@ async function handleStreamingAnalyze(
   writeSseEvent(res, "ack", { run_id: runId });
 
   try {
+    writeSseEvent(res, "status", { message: "request validated" });
     writeSseEvent(res, "status", { message: "retrieving deterministic finance context" });
     writeSseEvent(res, "narrative_delta", {
       text: narrativeFor(request)
