@@ -139,6 +139,34 @@ describe("analyze routes", () => {
     expect(response.body.error.type).toBe("model_output_invalid");
   });
 
+  it("rejects non-finite analyzer amounts before JSON serialization", async () => {
+    const analyzer: FinanceAnalyzer = {
+      async analyze() {
+        const response = await new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_infinite_amount" });
+        const [firstDriver, ...remainingDrivers] = response.drivers;
+
+        if (!firstDriver) {
+          throw new Error("mock response did not include a driver");
+        }
+
+        return {
+          ...response,
+          drivers: [
+            {
+              ...firstDriver,
+              amount: Infinity
+            },
+            ...remainingDrivers
+          ]
+        };
+      }
+    };
+
+    const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(502);
+
+    expect(response.body.error.type).toBe("model_output_invalid");
+  });
+
   it("maps adapter-translated upstream analyzer failures to 503 after retry", async () => {
     let attempts = 0;
     const analyzer: FinanceAnalyzer = {

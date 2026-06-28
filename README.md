@@ -116,7 +116,7 @@ Expected shape:
   "validation": {
     "schema_valid": true,
     "grounding_records_found": 3,
-    "numeric_reconciliation_passed": true
+    "numeric_reconciliation_passed": false
   },
   "review_required": true,
   "audit": {

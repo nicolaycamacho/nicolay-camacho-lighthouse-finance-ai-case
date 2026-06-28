@@ -13,7 +13,7 @@ export const analyzeRequestSchema = z
       .optional(),
     account_ids: z.array(z.string().trim().min(1)).optional(),
     case_ids: z.array(z.string().trim().min(1)).optional(),
-    materiality_threshold: z.number().nonnegative().optional(),
+    materiality_threshold: z.number().finite().nonnegative().optional(),
     include_citations: z.boolean().optional(),
     requested_actions: z.array(z.string().trim().min(1)).optional(),
     context: z.record(z.unknown()).optional()
@@ -29,10 +29,10 @@ const citationSchema = z
 
 const driverSchema = z
   .object({
-    rank: z.number().int().positive(),
+    rank: z.number().finite().int().positive(),
     driver_type: z.string().min(1),
     label: z.string().min(1),
-    amount: z.number().optional(),
+    amount: z.number().finite().optional(),
     currency: z.string().min(1).optional(),
     explanation: z.string().min(1),
     citations: z.array(citationSchema).optional()
@@ -58,7 +58,7 @@ const responseEnvelopeSchema = z
     recommended_actions: z.array(recommendedActionSchema),
     confidence: z
       .object({
-        overall: z.number().min(0).max(1),
+        overall: z.number().finite().min(0).max(1),
         reasons: z.array(z.string().min(1))
       })
       .strict(),
@@ -80,7 +80,7 @@ export const analyzeResponseSchema = responseEnvelopeSchema
     validation: z
       .object({
         schema_valid: z.boolean(),
-        grounding_records_found: z.number().int().nonnegative(),
+        grounding_records_found: z.number().finite().int().nonnegative(),
         numeric_reconciliation_passed: z.boolean()
       })
       .strict()
