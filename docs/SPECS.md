@@ -116,7 +116,7 @@ event: status
 data: {"message":"retrieving deterministic finance context"}
 
 event: narrative_delta
-data: {"text":"Summarizing close readiness across deterministic variance and blocker signals."}
+data: {"text":"Preparing close readiness summary from deterministic variance and blocker signals."}
 
 event: result
 data: {...}
@@ -155,6 +155,7 @@ Mappings:
 - `materiality_threshold`, if present, must be non-negative.
 - Unknown top-level request fields are rejected.
 - Successful responses are validated with Zod before return.
+- Response `validation` metadata is service-owned. The route overwrites model/analyzer-supplied flags after schema validation.
 - `include_citations: false` suppresses returned citation arrays, but `validation.grounding_records_found` can still report the internally retrieved evidence count.
 
 ## Non-Goals

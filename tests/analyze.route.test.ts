@@ -7,9 +7,9 @@ import { toErrorResponse, toHttpError, UpstreamLLMError } from "../src/errors";
 import type { FinanceAnalyzer } from "../src/llm/FinanceAnalyzer";
 import { MockFinanceAnalyzer } from "../src/llm/MockFinanceAnalyzer";
 import { createAnalyzeRouter } from "../src/routes/analyze";
-import { analyzeResponseSchema } from "../src/schemas/analyze";
+import { analyzeResponseSchema, type AnalyzeRequest } from "../src/schemas/analyze";
 
-const validRequest = {
+const validRequest: AnalyzeRequest = {
   query: "Explain the material movement in Marketing Opex for the UK entity in 2026-05.",
   analysis_type: "variance",
   entity_id: "uk_01",
@@ -244,6 +244,64 @@ describe("analyze routes", () => {
     expect(response.body.citations).toEqual([]);
     expect(response.body.drivers[0].citations).toBeUndefined();
     expect(response.body.validation.grounding_records_found).toBe(3);
+  });
+
+  it("overwrites analyzer-supplied validation metadata at the service boundary", async () => {
+    const analyzer: FinanceAnalyzer = {
+      async analyze() {
+        const response = await new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_service_validation" });
+
+        return {
+          ...response,
+          validation: {
+            schema_valid: false,
+            grounding_records_found: 999,
+            numeric_reconciliation_passed: false
+          }
+        };
+      }
+    };
+
+    const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(200);
+
+    expect(response.body.validation).toEqual({
+      schema_valid: true,
+      grounding_records_found: 3,
+      numeric_reconciliation_passed: true
+    });
+  });
+
+  it("derives numeric reconciliation from validated response fields", async () => {
+    const analyzer: FinanceAnalyzer = {
+      async analyze() {
+        const response = await new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_numeric_validation" });
+        const [firstDriver, ...remainingDrivers] = response.drivers;
+
+        if (!firstDriver) {
+          throw new Error("mock response did not include a driver");
+        }
+
+        return {
+          ...response,
+          drivers: [
+            {
+              ...firstDriver,
+              currency: undefined
+            },
+            ...remainingDrivers
+          ],
+          validation: {
+            schema_valid: true,
+            grounding_records_found: 3,
+            numeric_reconciliation_passed: true
+          }
+        };
+      }
+    };
+
+    const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(200);
+
+    expect(response.body.validation.numeric_reconciliation_passed).toBe(false);
   });
 });
 

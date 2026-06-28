@@ -13,7 +13,7 @@ export class MockFinanceAnalyzer implements FinanceAnalyzer {
     const entity = request.entity_id ?? "selected_entity";
     const period = request.period ?? "latest_close_period";
     const threshold = request.materiality_threshold ?? 25000;
-    const includeCitations = request.include_citations !== false;
+    const includeCitations = true;
 
     if (request.analysis_type === "variance") {
       return buildVarianceResponse(request, runId, entity, period, threshold, includeCitations);

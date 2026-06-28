@@ -29,6 +29,8 @@ The response schema is explicit:
 
 `src/llm/parseModelOutput.ts` shows how raw provider JSON would be parsed and validated. If JSON parsing fails or schema validation fails, the service raises a `ModelOutputError`, which maps to a `502` response after retry exhaustion.
 
+The analyzer/model does not own the response `validation` metadata. After the response shape is validated, the route overwrites `schema_valid`, derives `grounding_records_found` from actual citation records, and derives `numeric_reconciliation_passed` from the validated numeric driver fields before applying any client-facing citation suppression.
+
 ## 4. Streaming + Structured Output Constraint
 
 Streaming and structured output are in tension. A partially streamed JSON object is not a safe canonical finance answer because it may be incomplete, invalid, or revised by later tokens.

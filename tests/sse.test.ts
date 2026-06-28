@@ -36,7 +36,7 @@ describe("SSE analyze route", () => {
     expect(validationStatusEvent.data).toEqual({ message: "request validated" });
     expect(retrievalStatusEvent.data).toEqual({ message: "retrieving deterministic finance context" });
     expect(narrativeEvent.data).toEqual({
-      text: "Summarizing close readiness across deterministic variance and blocker signals."
+      text: "Preparing close readiness summary from deterministic variance and blocker signals."
     });
     expect(analyzeResponseSchema.parse(resultEvent.data).run_id).toBe((ackEvent.data as { run_id: string }).run_id);
     expect(doneEvent.data).toEqual({ ok: true });
@@ -54,6 +54,27 @@ describe("SSE analyze route", () => {
     expect(response.headers["content-type"]).toContain("application/json");
     expect(response.text).not.toContain("event: ack");
     expect(response.body.error.type).toBe("validation_error");
+  });
+
+  it("uses neutral narrative progress before the final result", async () => {
+    for (const analysisType of ["variance", "expense_exception"] as const) {
+      const response = await request(app)
+        .post("/analyze?stream=true")
+        .send({
+          ...validRequest,
+          analysis_type: analysisType
+        })
+        .expect(200);
+      const narrativeEvent = eventAt(parseSseEvents(response.text), 3);
+
+      expect(narrativeEvent.data).toEqual({
+        text:
+          analysisType === "variance"
+            ? "Preparing evidence-linked variance commentary after deterministic checks complete."
+            : "Preparing exception triage and human-review next actions after deterministic checks complete."
+      });
+      expect(JSON.stringify(narrativeEvent.data)).not.toContain("Found ");
+    }
   });
 });
 

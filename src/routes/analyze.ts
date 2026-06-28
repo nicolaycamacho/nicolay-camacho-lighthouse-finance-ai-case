@@ -8,7 +8,7 @@ import { parseModelOutput } from "../llm/parseModelOutput";
 import { retry } from "../lib/retry";
 import { setSseHeaders, writeSseEvent } from "../lib/sse";
 import { withTimeout } from "../lib/timeout";
-import { analyzeRequestSchema, analyzeResponseSchema, type AnalyzeRequest } from "../schemas/analyze";
+import { analyzeRequestSchema, analyzeResponseSchema, type AnalyzeRequest, type AnalyzeResponse } from "../schemas/analyze";
 
 const defaultAnalyzer = new MockFinanceAnalyzer();
 
@@ -67,7 +67,7 @@ async function runAnalyze(analyzer: FinanceAnalyzer, request: AnalyzeRequest, ru
           { abortController }
         );
 
-        return normalizeAnalyzerOutput(rawResult);
+        return normalizeAnalyzerOutput(rawResult, request);
       },
       {
         maxAttempts: 2,
@@ -158,27 +158,72 @@ function createAnalyzerAbortController(clientSignal?: AbortSignal) {
 
 function narrativeFor(request: AnalyzeRequest) {
   if (request.analysis_type === "variance") {
-    return "Found material movement above the configured threshold; preparing evidence-linked commentary.";
+    return "Preparing evidence-linked variance commentary after deterministic checks complete.";
   }
 
   if (request.analysis_type === "expense_exception") {
-    return "Found close blockers in the exception queue; drafting human-review next actions.";
+    return "Preparing exception triage and human-review next actions after deterministic checks complete.";
   }
 
-  return "Summarizing close readiness across deterministic variance and blocker signals.";
+  return "Preparing close readiness summary from deterministic variance and blocker signals.";
 }
 
-function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput) {
-  if (typeof output === "string") {
-    return parseModelOutput(output);
-  }
-
-  const parsedResult = analyzeResponseSchema.safeParse(output);
+function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput, request: AnalyzeRequest) {
+  const analyzerResult = typeof output === "string" ? parseModelOutput(output) : output;
+  const parsedResult = analyzeResponseSchema.safeParse(analyzerResult);
   if (!parsedResult.success) {
     throw new ModelOutputError("Analyzer returned schema-invalid output", {
       issues: formatZodIssues(parsedResult.error.issues)
     });
   }
 
-  return parsedResult.data;
+  const resultWithServiceValidation = applyServiceValidation(parsedResult.data);
+  return applyCitationPreference(resultWithServiceValidation, request);
+}
+
+function applyServiceValidation(result: AnalyzeResponse): AnalyzeResponse {
+  const groundingRecordsFound = countUniqueCitations(result);
+  const numericReconciliationPassed = result.drivers.every(
+    (driver) => driver.amount === undefined || (Number.isFinite(driver.amount) && driver.currency !== undefined)
+  );
+
+  return {
+    ...result,
+    validation: {
+      schema_valid: true,
+      grounding_records_found: groundingRecordsFound,
+      numeric_reconciliation_passed: numericReconciliationPassed
+    }
+  };
+}
+
+function applyCitationPreference(result: AnalyzeResponse, request: AnalyzeRequest): AnalyzeResponse {
+  if (request.include_citations !== false) {
+    return result;
+  }
+
+  return {
+    ...result,
+    drivers: result.drivers.map((driver) => {
+      const { citations: _citations, ...driverWithoutCitations } = driver;
+      return driverWithoutCitations;
+    }),
+    citations: []
+  };
+}
+
+function countUniqueCitations(result: AnalyzeResponse) {
+  const citationKeys = new Set<string>();
+
+  for (const citation of result.citations) {
+    citationKeys.add(`${citation.source_type}:${citation.source_record_id}`);
+  }
+
+  for (const driver of result.drivers) {
+    for (const citation of driver.citations ?? []) {
+      citationKeys.add(`${citation.source_type}:${citation.source_record_id}`);
+    }
+  }
+
+  return citationKeys.size;
 }
