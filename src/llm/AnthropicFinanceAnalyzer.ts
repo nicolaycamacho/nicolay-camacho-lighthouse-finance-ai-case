@@ -127,7 +127,7 @@ ${JSON.stringify(promptRequest, null, 2)}
 Allowed values:
 - status: choose exactly one of completed, needs_review, incomplete, failed.
 - recommended_actions[].priority: choose exactly one of low, medium, high.
-- citations: use an empty array because this live adapter has no real NetSuite, Brex, AP, warehouse, or evidence-store retrieval.
+- citations: omit all citation fields because this live adapter has no real NetSuite, Brex, AP, warehouse, or evidence-store retrieval.
 
 Return exactly one JSON object matching this raw live content contract:
 {
@@ -140,15 +140,13 @@ Return exactly one JSON object matching this raw live content contract:
       "label": "Demo finance driver",
       "amount": 123.45,
       "currency": "USD",
-      "explanation": "Explain the driver using only the supplied demo context.",
-      "citations": []
+      "explanation": "Explain the driver using only the supplied demo context."
     }
   ],
   "recommended_actions": [
     { "action_type": "draft_commentary", "priority": "high", "owner_role": "Controller", "text": "Draft review-gated commentary for finance approval." }
   ],
   "confidence": { "overall": 0.7, "reasons": ["The output is based on supplied demo context and still requires finance review."] },
-  "citations": [],
   "review_required": true
 }
 

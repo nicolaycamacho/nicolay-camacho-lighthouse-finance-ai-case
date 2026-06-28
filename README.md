@@ -84,13 +84,13 @@ npm run build
 Current local validation:
 
 - `npm run build` passes.
-- `npm test` passes with 8 test files and 59 tests.
+- `npm test` passes with 8 test files and 62 tests.
 
 ## LLM Provider Modes
 
 `LLM_PROVIDER=mock` is the default and recommended reviewer mode. It uses the deterministic `MockFinanceAnalyzer`, requires no API keys, and keeps the submission reproducible.
 
-`LLM_PROVIDER=anthropic` is optional live-demo mode. It uses a local `ANTHROPIC_API_KEY` environment variable and does not require source-code changes. No API keys are committed, arbitrary request `context` is not forwarded, and model-produced citations are stripped so live mode cannot inflate grounding or reconciliation metadata.
+`LLM_PROVIDER=anthropic` is optional live-demo mode. It uses a local `ANTHROPIC_API_KEY` environment variable and does not require source-code changes. No API keys are committed, arbitrary request `context` is not forwarded, and model-produced citations are stripped or ignored so live mode cannot inflate grounding or reconciliation metadata.
 
 If `LLM_PROVIDER=anthropic` is set without `ANTHROPIC_API_KEY`, the service fails fast at startup with a clear configuration error. Request-time provider/client rejections, such as invalid keys, use the structured `502 provider_configuration_error` response.
 

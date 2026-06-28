@@ -1,29 +1,41 @@
 import { randomUUID } from "node:crypto";
 
 import type { AnalyzeModelOutput, FinanceAnalyzerRequest } from "../schemas/analyze";
-import type { FinanceAnalyzer, FinanceAnalyzerOptions } from "./FinanceAnalyzer";
+import type {
+  FinanceAnalyzer,
+  TrustedEvidenceCitation,
+  TrustedEvidenceFinanceAnalyzer,
+  TrustedEvidenceFinanceAnalyzerOptions
+} from "./FinanceAnalyzer";
 
 export function createRunId() {
   return `ana_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
 }
 
-export class MockFinanceAnalyzer implements FinanceAnalyzer {
-  async analyze(request: FinanceAnalyzerRequest, options?: FinanceAnalyzerOptions): Promise<AnalyzeModelOutput> {
+export class MockFinanceAnalyzer implements FinanceAnalyzer, TrustedEvidenceFinanceAnalyzer {
+  readonly providesTrustedEvidence = true;
+
+  async analyze(
+    request: FinanceAnalyzerRequest,
+    options?: TrustedEvidenceFinanceAnalyzerOptions
+  ): Promise<AnalyzeModelOutput> {
     const runId = options?.runId ?? createRunId();
     const entity = request.entity_id ?? "selected_entity";
     const period = request.period ?? "latest_close_period";
     const threshold = request.materiality_threshold ?? 25000;
     const includeCitations = true;
+    let output: AnalyzeModelOutput;
 
     if (request.analysis_type === "variance") {
-      return buildVarianceResponse(request, runId, entity, period, threshold, includeCitations);
+      output = buildVarianceResponse(request, runId, entity, period, threshold, includeCitations);
+    } else if (request.analysis_type === "expense_exception") {
+      output = buildExpenseExceptionResponse(request, runId, entity, period, includeCitations);
+    } else {
+      output = buildCloseSummaryResponse(request, runId, entity, period, includeCitations);
     }
 
-    if (request.analysis_type === "expense_exception") {
-      return buildExpenseExceptionResponse(request, runId, entity, period, includeCitations);
-    }
-
-    return buildCloseSummaryResponse(request, runId, entity, period, includeCitations);
+    options?.recordTrustedEvidence?.(collectCitations(output));
+    return output;
   }
 }
 
@@ -47,6 +59,13 @@ function maybeTopLevelCitations(
   citations: Array<{ source_type: string; source_record_id: string }>
 ) {
   return includeCitations ? citations : [];
+}
+
+function collectCitations(output: AnalyzeModelOutput): TrustedEvidenceCitation[] {
+  return [
+    ...output.citations,
+    ...output.drivers.flatMap((driver) => driver.citations ?? [])
+  ];
 }
 
 function buildVarianceResponse(

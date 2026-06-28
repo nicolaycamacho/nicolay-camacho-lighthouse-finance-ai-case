@@ -18,11 +18,11 @@ If `LLM_PROVIDER` is missing, the service also uses mock mode.
 
 ## Optional Live Provider Mode
 
-`LLM_PROVIDER=anthropic` enables the optional Anthropic-backed analyzer. The adapter calls the Anthropic Messages API, asks for strict JSON, parses the raw response through `parseModelOutput`, and lets the route add service-owned validation metadata before returning the final response.
+`LLM_PROVIDER=anthropic` enables the optional Anthropic-backed analyzer. The adapter calls the Anthropic Messages API, asks for strict JSON, parses only model-owned finance content through the raw live content schema, ignores citation fields, and then attaches adapter-owned `run_id`, `analysis_type`, empty citations, and audit metadata before the route adds service-owned validation metadata.
 
 This mode is for interview or local demo use only. The repo does not have live NetSuite, Brex, warehouse, or Google Drive access, so the prompt frames the request as demo finance context and does not pretend to retrieve real accounting records. The adapter forwards only whitelisted request fields and omits arbitrary request `context` from the provider prompt.
 
-Because live mode does not retrieve deterministic finance evidence, the adapter strips Anthropic-produced citations before returning analyzer output. That keeps `grounding_records_found` and `numeric_reconciliation_passed` from being inflated by model-invented evidence. They should remain ungrounded until a future service-owned retrieval layer supplies real deterministic evidence records.
+Because live mode does not retrieve deterministic finance evidence, the adapter strips or ignores Anthropic-produced citations before returning analyzer output and does not implement the trusted-evidence capability. That keeps `grounding_records_found` and `numeric_reconciliation_passed` from being inflated by model-invented evidence. They should remain ungrounded until a future deterministic/retrieval-backed layer supplies real evidence records through the opt-in trusted-evidence channel.
 
 ## Local Secret Handling
 
@@ -72,7 +72,7 @@ Do not claim live provider success unless you have tested with a real key in you
 
 A production adapter should pass `AbortSignal` into the provider client, translate known provider/network/rate-limit failures to `UpstreamLLMError`, preserve model-output failures as `ModelOutputError`, and avoid logging secrets or sensitive finance context.
 
-Provider-native schema controls are helpful, but application-side Zod validation remains mandatory. The route validates final responses, owns validation metadata, applies client citation preferences, and keeps the final SSE `result` as the only canonical streamed output.
+Provider-native schema controls are helpful, but application-side Zod validation remains mandatory. The route validates final responses, owns validation metadata, derives grounding only from explicitly registered and schema-valid trusted evidence, applies client citation preferences, and keeps the final SSE `result` as the only canonical streamed output.
 
 Provider HTTP errors are classified before they leave the adapter. Network failures, rate limits, and 5xx provider responses are retryable upstream errors. Provider/client configuration failures such as 400, 401, and 403 responses are non-retryable so invalid keys or bad requests do not masquerade as transient outages.
 

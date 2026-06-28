@@ -1,8 +1,14 @@
 import type { AnalyzeModelOutput, FinanceAnalyzerRequest } from "../schemas/analyze";
 
+export type TrustedEvidenceCitation = AnalyzeModelOutput["citations"][number];
+
 export interface FinanceAnalyzerOptions {
   runId?: string;
   signal?: AbortSignal;
+}
+
+export interface TrustedEvidenceFinanceAnalyzerOptions extends FinanceAnalyzerOptions {
+  recordTrustedEvidence?: (citations: TrustedEvidenceCitation[]) => void;
 }
 
 export type FinanceAnalyzerOutput = AnalyzeModelOutput | string;
@@ -15,13 +21,24 @@ export type FinanceAnalyzerOutput = AnalyzeModelOutput | string;
  * not retried as provider outages.
  *
  * Adapters receive an internal request without presentation-only fields such as
- * include_citations. Retrieval-backed adapters should return full
- * service-owned evidence citations to the route, which owns client-facing
- * citation suppression and service-derived validation metadata. Demo live
- * provider adapters that do not have a deterministic retrieval layer must
- * return no citations rather than treating model-authored references as
- * grounding evidence.
+ * include_citations. Returned citations are explanatory client-facing content,
+ * not proof for service-owned validation metadata.
  */
 export interface FinanceAnalyzer {
   analyze(request: FinanceAnalyzerRequest, options?: FinanceAnalyzerOptions): Promise<FinanceAnalyzerOutput>;
+}
+
+/**
+ * Deterministic or retrieval-backed analyzers may opt into trusted evidence
+ * recording. The route only derives grounding and numeric reconciliation from
+ * this capability, and live/demo provider adapters without a service-owned
+ * retrieval layer should implement FinanceAnalyzer only.
+ */
+export interface TrustedEvidenceFinanceAnalyzer {
+  readonly providesTrustedEvidence: true;
+  analyze(request: FinanceAnalyzerRequest, options?: TrustedEvidenceFinanceAnalyzerOptions): Promise<FinanceAnalyzerOutput>;
+}
+
+export function providesTrustedEvidence(analyzer: FinanceAnalyzer): analyzer is FinanceAnalyzer & TrustedEvidenceFinanceAnalyzer {
+  return (analyzer as { providesTrustedEvidence?: unknown }).providesTrustedEvidence === true;
 }

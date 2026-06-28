@@ -20,7 +20,7 @@ export const analyzeRequestSchema = z
   })
   .strict();
 
-const citationSchema = z
+export const citationSchema = z
   .object({
     source_type: z.string().min(1),
     source_record_id: z.string().min(1)
@@ -75,11 +75,22 @@ const responseEnvelopeSchema = z
 
 export const analyzeModelOutputSchema = responseEnvelopeSchema.strict();
 
+const analyzeModelContentDriverSchema = driverSchema
+  .omit({
+    citations: true
+  })
+  .strip();
+
 export const analyzeModelContentSchema = responseEnvelopeSchema
   .omit({
     run_id: true,
     analysis_type: true,
-    audit: true
+    audit: true,
+    citations: true,
+    drivers: true
+  })
+  .extend({
+    drivers: z.array(analyzeModelContentDriverSchema)
   })
   .strip();
 

@@ -16,9 +16,9 @@ Provider-native schema enforcement is useful but not sufficient. The application
 
 The service selects its analyzer through `LLM_PROVIDER`. Missing provider config or `LLM_PROVIDER=mock` uses the deterministic mock path so the submission is reproducible without secrets. `LLM_PROVIDER=anthropic` enables an optional live-demo adapter, with the API key read only from `ANTHROPIC_API_KEY`.
 
-Both provider paths pass through application-side schema validation. The live adapter asks Anthropic for strict JSON, parses it with `parseModelOutput`, and the route still derives service-owned validation metadata before returning a response. It forwards only whitelisted request fields and omits arbitrary request `context` from the provider prompt. This keeps provider-native JSON controls as a convenience, not the final contract.
+Both provider paths pass through application-side schema validation. The live adapter asks Anthropic for strict JSON, parses only model-owned finance content with the raw live content schema, ignores citation fields, and then attaches adapter-owned `run_id`, `analysis_type`, empty citations, and audit metadata before the route derives service-owned validation metadata. It forwards only whitelisted request fields and omits arbitrary request `context` from the provider prompt. This keeps provider-native JSON controls as a convenience, not the final contract.
 
-Because the optional live adapter has no real deterministic finance retrieval, it strips model-produced citations rather than pretending generated warehouse, ERP, or demo citations are proof. That keeps grounding counts and numeric reconciliation false unless the service has supplied actual trusted evidence records.
+Because the optional live adapter has no real deterministic finance retrieval, it strips or ignores model-produced citations rather than pretending generated warehouse, ERP, or demo citations are proof. That keeps grounding counts and numeric reconciliation false unless a deterministic/retrieval-backed analyzer explicitly opts into the trusted-evidence capability and supplies runtime-validated evidence records.
 
 ## 3. Structured Output Strategy
 
@@ -37,7 +37,7 @@ The response schema is explicit:
 
 `src/llm/parseModelOutput.ts` shows how raw provider JSON would be parsed and validated. Raw analyzer/model output omits service-owned `validation` metadata. If JSON parsing fails or raw output schema validation fails, the service raises a `ModelOutputError`, which maps to a `502` response after retry exhaustion.
 
-The analyzer/model does not own the response `validation` metadata. After raw output is validated, the route adds `schema_valid`, derives `grounding_records_found` from service-owned citation records, and sets `numeric_reconciliation_passed` only when every amount-bearing driver has currency plus trusted deterministic evidence. The optional live adapter strips model-produced citations because it has no retrieval layer. No-amount summaries and ungrounded numeric claims default to `false`. Only after that does the route apply client-facing citation suppression.
+The analyzer/model does not own the response `validation` metadata. After raw output is validated, the route adds `schema_valid`, derives `grounding_records_found` only from evidence records registered through the opt-in trusted-evidence channel, and validates those records with the citation schema before counting them. It sets `numeric_reconciliation_passed` only when every amount-bearing driver has currency plus matching trusted deterministic evidence. Analyzer-returned citation strings are explanatory output, not proof by themselves. The optional live adapter strips model-produced citations because it has no retrieval layer. No-amount summaries and ungrounded numeric claims default to `false`. Only after that does the route apply client-facing citation suppression.
 
 ## 4. Streaming + Structured Output Constraint
 

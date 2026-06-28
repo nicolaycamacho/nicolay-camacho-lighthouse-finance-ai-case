@@ -93,6 +93,7 @@ describe("Anthropic live prompt", () => {
 
     expect(prompt).toContain("this live adapter has no real NetSuite, Brex, AP, warehouse, or evidence-store retrieval");
     expect(prompt).toContain("Do not include citation records");
+    expect(prompt).not.toContain('"citations": []');
     expect(prompt).not.toContain('"source_type": "warehouse_model"');
     expect(prompt).not.toContain('"source_type": "demo_context"');
   });
@@ -213,6 +214,58 @@ describe("Anthropic citation provenance", () => {
     expect(result.citations).toEqual([]);
     expect(result.drivers[0]?.citations).toEqual([]);
   });
+
+  it("accepts live model content without citation fields", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                status: "needs_review",
+                summary: "Demo variance needs review.",
+                drivers: [
+                  {
+                    rank: 1,
+                    driver_type: "demo_variance_driver",
+                    label: "Marketing Opex",
+                    amount: 123.45,
+                    currency: "USD",
+                    explanation: "Demo-only driver with no retrieved evidence."
+                  }
+                ],
+                recommended_actions: [
+                  {
+                    action_type: "draft_commentary",
+                    priority: "high",
+                    owner_role: "Controller",
+                    text: "Review before sharing."
+                  }
+                ],
+                confidence: {
+                  overall: 0.7,
+                  reasons: ["Demo context only."]
+                },
+                review_required: true
+              })
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+
+    const analyzer = new AnthropicFinanceAnalyzer("test-key", {
+      model: "claude-test",
+      endpoint: "https://example.test/messages"
+    });
+
+    const result = await analyzer.analyze(validRequest, { runId: "ana_live_without_citations" });
+
+    expect(result.citations).toEqual([]);
+    expect(result.drivers[0]?.citations).toEqual([]);
+  });
 });
 
 describe("Anthropic request boundary", () => {
@@ -238,7 +291,6 @@ describe("Anthropic request boundary", () => {
                   overall: 0.6,
                   reasons: ["Demo context only."]
                 },
-                citations: [],
                 review_required: true
               })
             }

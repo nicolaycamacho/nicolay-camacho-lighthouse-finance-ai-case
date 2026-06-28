@@ -2,7 +2,12 @@ import { Router, type Response } from "express";
 
 import { parseAnalysisTimeoutMs } from "../config";
 import { ModelOutputError, ValidationError, formatZodIssues, toErrorResponse, toHttpError } from "../errors";
-import type { FinanceAnalyzer, FinanceAnalyzerOutput } from "../llm/FinanceAnalyzer";
+import {
+  providesTrustedEvidence,
+  type FinanceAnalyzer,
+  type FinanceAnalyzerOutput,
+  type TrustedEvidenceCitation
+} from "../llm/FinanceAnalyzer";
 import { createRunId } from "../llm/MockFinanceAnalyzer";
 import { parseModelOutput } from "../llm/parseModelOutput";
 import { retry } from "../lib/retry";
@@ -12,6 +17,7 @@ import {
   analyzeModelOutputSchema,
   analyzeRequestSchema,
   analyzeResponseSchema,
+  citationSchema,
   type AnalyzeModelOutput,
   type AnalyzeRequest,
   type AnalyzeResponse,
@@ -67,14 +73,29 @@ async function runAnalyze(analyzer: FinanceAnalyzer, request: AnalyzeRequest, ru
     return await retry(
       async () => {
         const analyzerRequest = toFinanceAnalyzerRequest(request);
+        const trustedEvidence: TrustedEvidenceCitation[] = [];
+        const analyzerOptions = {
+          runId,
+          signal: abortController.signal
+        };
+
+        const analyzerPromise = providesTrustedEvidence(analyzer)
+          ? analyzer.analyze(analyzerRequest, {
+              ...analyzerOptions,
+              recordTrustedEvidence: (citations: TrustedEvidenceCitation[]) => {
+                trustedEvidence.push(...parseTrustedEvidence(citations));
+              }
+            })
+          : analyzer.analyze(analyzerRequest, analyzerOptions);
+
         const rawResult = await withTimeout(
-          analyzer.analyze(analyzerRequest, { runId, signal: abortController.signal }),
+          analyzerPromise,
           timeoutMs,
           "Analyze request exceeded the configured timeout",
           { abortController }
         );
 
-        return normalizeAnalyzerOutput(rawResult, request, runId);
+        return normalizeAnalyzerOutput(rawResult, request, runId, trustedEvidence);
       },
       {
         maxAttempts: 2,
@@ -180,7 +201,12 @@ function toFinanceAnalyzerRequest(request: AnalyzeRequest): FinanceAnalyzerReque
   return analyzerRequest;
 }
 
-function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput, request: AnalyzeRequest, expectedRunId?: string) {
+function normalizeAnalyzerOutput(
+  output: FinanceAnalyzerOutput,
+  request: AnalyzeRequest,
+  expectedRunId?: string,
+  trustedEvidence: TrustedEvidenceCitation[] = []
+) {
   const analyzerResult = typeof output === "string" ? parseModelOutput(output) : output;
   const parsedResult = analyzeModelOutputSchema.safeParse(analyzerResult);
   if (!parsedResult.success) {
@@ -190,7 +216,7 @@ function normalizeAnalyzerOutput(output: FinanceAnalyzerOutput, request: Analyze
   }
 
   const resultWithServiceEnvelope = applyServiceEnvelope(parsedResult.data, request, expectedRunId);
-  const resultWithServiceValidation = applyServiceValidation(resultWithServiceEnvelope);
+  const resultWithServiceValidation = applyServiceValidation(resultWithServiceEnvelope, trustedEvidence);
   const finalResult = applyCitationPreference(resultWithServiceValidation, request);
   const parsedFinalResult = analyzeResponseSchema.safeParse(finalResult);
 
@@ -215,9 +241,10 @@ function applyServiceEnvelope(
   };
 }
 
-function applyServiceValidation(result: AnalyzeModelOutput): AnalyzeResponse {
-  const groundingRecordsFound = countUniqueCitations(result);
-  const numericReconciliationPassed = hasDeterministicNumericReconciliation(result);
+function applyServiceValidation(result: AnalyzeModelOutput, trustedEvidence: TrustedEvidenceCitation[]): AnalyzeResponse {
+  const trustedEvidenceKeys = toCitationKeySet(trustedEvidence);
+  const groundingRecordsFound = trustedEvidenceKeys.size;
+  const numericReconciliationPassed = hasDeterministicNumericReconciliation(result, trustedEvidenceKeys);
 
   return {
     ...result,
@@ -244,23 +271,28 @@ function applyCitationPreference(result: AnalyzeResponse, request: AnalyzeReques
   };
 }
 
-function countUniqueCitations(result: AnalyzeModelOutput) {
+function toCitationKeySet(citations: TrustedEvidenceCitation[]) {
   const citationKeys = new Set<string>();
 
-  for (const citation of result.citations) {
+  for (const citation of citations) {
     citationKeys.add(`${citation.source_type}:${citation.source_record_id}`);
   }
 
-  for (const driver of result.drivers) {
-    for (const citation of driver.citations ?? []) {
-      citationKeys.add(`${citation.source_type}:${citation.source_record_id}`);
-    }
-  }
-
-  return citationKeys.size;
+  return citationKeys;
 }
 
-function hasDeterministicNumericReconciliation(result: AnalyzeModelOutput) {
+function parseTrustedEvidence(citations: TrustedEvidenceCitation[]) {
+  const result = citationSchema.array().safeParse(citations);
+  if (!result.success) {
+    throw new ModelOutputError("Trusted evidence records were schema-invalid", {
+      issues: formatZodIssues(result.error.issues)
+    });
+  }
+
+  return result.data;
+}
+
+function hasDeterministicNumericReconciliation(result: AnalyzeModelOutput, trustedEvidenceKeys: Set<string>) {
   const amountDrivers = result.drivers.filter((driver) => driver.amount !== undefined);
 
   if (amountDrivers.length === 0) {
@@ -272,6 +304,10 @@ function hasDeterministicNumericReconciliation(result: AnalyzeModelOutput) {
       return false;
     }
 
-    return (driver.citations ?? []).some((citation) => RECONCILIATION_SOURCE_TYPES.has(citation.source_type));
+    return (driver.citations ?? []).some(
+      (citation) =>
+        RECONCILIATION_SOURCE_TYPES.has(citation.source_type) &&
+        trustedEvidenceKeys.has(`${citation.source_type}:${citation.source_record_id}`)
+    );
   });
 }

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/app";
 import { toErrorResponse, toHttpError, UpstreamLLMError } from "../src/errors";
 import { AnthropicFinanceAnalyzer } from "../src/llm/AnthropicFinanceAnalyzer";
-import type { FinanceAnalyzer } from "../src/llm/FinanceAnalyzer";
+import type { FinanceAnalyzer, TrustedEvidenceFinanceAnalyzer } from "../src/llm/FinanceAnalyzer";
 import { MockFinanceAnalyzer } from "../src/llm/MockFinanceAnalyzer";
 import { createAnalyzeRouter } from "../src/routes/analyze";
 import { analyzeResponseSchema, type AnalyzeRequest } from "../src/schemas/analyze";
@@ -280,9 +280,10 @@ describe("analyze routes", () => {
   });
 
   it("constructs service-owned validation metadata for analyzer output that omits it", async () => {
-    const analyzer: FinanceAnalyzer = {
-      async analyze() {
-        return new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_service_validation" });
+    const analyzer: TrustedEvidenceFinanceAnalyzer = {
+      providesTrustedEvidence: true,
+      async analyze(_request, options) {
+        return new MockFinanceAnalyzer().analyze(validRequest, { ...options, runId: "ana_service_validation" });
       }
     };
 
@@ -328,15 +329,55 @@ describe("analyze routes", () => {
 
     expect(response.body.run_id).toBe("ana_raw_without_validation");
     expect(response.body.validation.schema_valid).toBe(true);
-    expect(response.body.validation.grounding_records_found).toBe(3);
+    expect(response.body.validation.grounding_records_found).toBe(0);
+    expect(response.body.validation.numeric_reconciliation_passed).toBe(false);
+  });
+
+  it("does not treat generic analyzer citation strings as trusted grounding evidence", async () => {
+    const analyzer: FinanceAnalyzer = {
+      async analyze() {
+        return new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_generic_citation_strings" });
+      }
+    };
+
+    const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(200);
+
+    expect(response.body.citations).toHaveLength(3);
+    expect(response.body.validation).toEqual({
+      schema_valid: true,
+      grounding_records_found: 0,
+      numeric_reconciliation_passed: false
+    });
+  });
+
+  it("rejects malformed trusted evidence records before counting grounding", async () => {
+    const analyzer: TrustedEvidenceFinanceAnalyzer = {
+      providesTrustedEvidence: true,
+      async analyze(_request, options) {
+        options?.recordTrustedEvidence?.([
+          {
+            source_type: "",
+            source_record_id: "missing_source_type"
+          }
+        ]);
+
+        return new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_malformed_evidence" });
+      }
+    };
+
+    const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(502);
+
+    expect(response.body.error.type).toBe("model_output_invalid");
+    expect(response.body.error.message).toBe("Trusted evidence records were schema-invalid");
   });
 
   it("does not pass presentation-only citation preferences to analyzers", async () => {
     let observedRequest: unknown;
-    const analyzer: FinanceAnalyzer = {
-      async analyze(request) {
+    const analyzer: TrustedEvidenceFinanceAnalyzer = {
+      providesTrustedEvidence: true,
+      async analyze(request, options) {
         observedRequest = request;
-        return new MockFinanceAnalyzer().analyze(request, { runId: "ana_internal_request" });
+        return new MockFinanceAnalyzer().analyze(request, { ...options, runId: "ana_internal_request" });
       }
     };
 
@@ -355,8 +396,11 @@ describe("analyze routes", () => {
 
   it("requires deterministic evidence for numeric reconciliation", async () => {
     const analyzer: FinanceAnalyzer = {
-      async analyze() {
-        const response = await new MockFinanceAnalyzer().analyze(validRequest, { runId: "ana_numeric_validation" });
+      async analyze(_request, options) {
+        const response = await new MockFinanceAnalyzer().analyze(validRequest, {
+          ...options,
+          runId: "ana_numeric_validation"
+        });
         const [firstDriver, ...remainingDrivers] = response.drivers;
 
         if (!firstDriver) {

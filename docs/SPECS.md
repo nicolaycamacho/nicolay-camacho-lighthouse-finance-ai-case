@@ -157,7 +157,7 @@ Mappings:
 - Unknown top-level request fields are rejected.
 - Successful responses are validated with Zod before return.
 - Raw analyzer/model output omits `validation`; response `validation` metadata is service-owned and added by the route after raw output schema validation.
-- Optional live-provider mode strips model-produced citations because it has no service-owned retrieval layer.
+- Optional live-provider mode strips or ignores model-produced citations because it has no service-owned retrieval layer.
 - `numeric_reconciliation_passed` requires amount-bearing drivers with currency and trusted deterministic evidence. It is `false` for no-amount summaries or ungrounded numeric claims.
 - `include_citations: false` suppresses returned citation arrays, but `validation.grounding_records_found` can still report the internally retrieved evidence count.
 
