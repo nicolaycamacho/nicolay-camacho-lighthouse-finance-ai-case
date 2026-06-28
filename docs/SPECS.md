@@ -1,0 +1,247 @@
+# Technical Specification
+
+## Endpoints
+
+### `GET /health`
+
+Returns service health:
+
+```json
+{
+  "status": "ok",
+  "service": "lighthouse-finance-ai-case"
+}
+```
+
+### `POST /analyze`
+
+Accepts a JSON finance analysis request and returns a schema-valid analysis result.
+
+### `POST /analyze?stream=true`
+
+Returns a Server-Sent Events stream with progress events and one final schema-valid result.
+
+## Request Schema
+
+```ts
+{
+  query: string;
+  analysis_type: "variance" | "expense_exception" | "close_summary";
+  entity_id?: string;
+  period?: string;
+  account_ids?: string[];
+  case_ids?: string[];
+  materiality_threshold?: number;
+  include_citations?: boolean;
+  requested_actions?: string[];
+  context?: Record<string, unknown>;
+}
+```
+
+## Response Schema
+
+```ts
+{
+  run_id: string;
+  analysis_type: "variance" | "expense_exception" | "close_summary";
+  status: "completed" | "needs_review" | "incomplete" | "failed";
+  summary: string;
+  drivers: Array<{
+    rank: number;
+    driver_type: string;
+    label: string;
+    amount?: number;
+    currency?: string;
+    explanation: string;
+    citations?: Array<{
+      source_type: string;
+      source_record_id: string;
+    }>;
+  }>;
+  recommended_actions: Array<{
+    action_type: string;
+    priority: "low" | "medium" | "high";
+    owner_role?: string;
+    text: string;
+  }>;
+  confidence: {
+    overall: number;
+    reasons: string[];
+  };
+  citations: Array<{
+    source_type: string;
+    source_record_id: string;
+  }>;
+  validation: {
+    schema_valid: boolean;
+    grounding_records_found: number;
+    numeric_reconciliation_passed: boolean;
+  };
+  review_required: boolean;
+  audit: {
+    generated_at: string;
+    model_name: string;
+    prompt_version: string;
+  };
+}
+```
+
+## Analysis Types
+
+- `variance`: material movement explanation and commentary drafting.
+- `expense_exception`: AP/Brex blocker triage and next-action drafting.
+- `close_summary`: close health summary by entity and period.
+
+## SSE Contract
+
+Allowed event types:
+
+- `ack`
+- `status`
+- `narrative_delta`
+- `result`
+- `done`
+- `error`
+
+Example:
+
+```text
+event: ack
+data: {"run_id":"ana_..."}
+
+event: status
+data: {"message":"request validated"}
+
+event: status
+data: {"message":"retrieving deterministic finance context"}
+
+event: narrative_delta
+data: {"text":"Preparing close readiness summary from deterministic variance and blocker signals."}
+
+event: result
+data: {...}
+
+event: done
+data: {"ok":true}
+```
+
+## Error Taxonomy
+
+```json
+{
+  "error": {
+    "type": "validation_error",
+    "message": "Invalid analyze request",
+    "retryable": false,
+    "details": {}
+  }
+}
+```
+
+Mappings:
+
+- invalid request -> `400 validation_error`;
+- oversized request body -> `413 request_body_too_large`;
+- timeout -> `408 timeout`;
+- malformed model output -> `502 model_output_invalid`;
+- non-retryable provider/client configuration failure -> `502 provider_configuration_error`;
+- adapter-translated transient provider/runtime failure -> `503 upstream_unavailable`;
+- unexpected failure -> `500 internal_error`.
+
+## Validation Rules
+
+- `query` is required and non-empty.
+- `analysis_type` must be one of the supported enum values.
+- `period`, if present, must use `YYYY-MM`.
+- `materiality_threshold`, if present, must be non-negative.
+- Unknown top-level request fields are rejected.
+- Successful responses are validated with Zod before return.
+- Raw analyzer/model output omits `validation`; response `validation` metadata is service-owned and added by the route after raw output schema validation.
+- Optional live-provider mode strips or ignores model-produced citations because it has no service-owned retrieval layer.
+- `numeric_reconciliation_passed` requires amount-bearing drivers with currency and trusted deterministic evidence. It is `false` for no-amount summaries or ungrounded numeric claims.
+- `include_citations: false` suppresses returned citation arrays, but `validation.grounding_records_found` can still report the internally retrieved evidence count.
+
+## Non-Goals
+
+- Frontend.
+- Database.
+- Real NetSuite, Brex, Anthropic, or Gemini integration by default.
+- Autonomous approval or execution.
+- External communication without human approval.
+
+## Sample Request
+
+```json
+{
+  "query": "Explain the material movement in Marketing Opex.",
+  "analysis_type": "variance",
+  "entity_id": "uk_01",
+  "period": "2026-05",
+  "materiality_threshold": 25000,
+  "include_citations": true
+}
+```
+
+## Sample Response
+
+```json
+{
+  "run_id": "ana_example",
+  "analysis_type": "variance",
+  "status": "needs_review",
+  "summary": "Marketing Opex for uk_01 in 2026-05 is above threshold and needs review.",
+  "drivers": [
+    {
+      "rank": 1,
+      "driver_type": "paid_social_spend",
+      "label": "Paid social campaign acceleration",
+      "amount": 42750,
+      "currency": "USD",
+      "explanation": "Spend increased as the UK demand generation campaign pulled two planned July tests into the May close period.",
+      "citations": [
+        { "source_type": "warehouse_model", "source_record_id": "variance_uk_01_2026-05_marketing_opex" },
+        { "source_type": "brex_transaction", "source_record_id": "brex_uk_01_2026-05_paid_social_771" }
+      ]
+    },
+    {
+      "rank": 2,
+      "driver_type": "agency_invoice",
+      "label": "Agency invoice timing",
+      "amount": 31800,
+      "currency": "USD",
+      "explanation": "A creative agency invoice was posted after the accrual review, creating a timing-driven variance that should be checked with the close owner.",
+      "citations": [
+        { "source_type": "netsuite_suiteql", "source_record_id": "vendor_bill_uk_01_2026-05_agency_1842" }
+      ]
+    }
+  ],
+  "recommended_actions": [
+    {
+      "action_type": "draft_commentary",
+      "priority": "high",
+      "owner_role": "Controller",
+      "text": "Draft management-reporting commentary that attributes the Marketing Opex variance to campaign acceleration and agency invoice timing, with both source records attached."
+    }
+  ],
+  "confidence": {
+    "overall": 0.82,
+    "reasons": ["Variance amount reconciles to deterministic warehouse records."]
+  },
+  "citations": [
+    { "source_type": "warehouse_model", "source_record_id": "variance_uk_01_2026-05_marketing_opex" },
+    { "source_type": "netsuite_suiteql", "source_record_id": "vendor_bill_uk_01_2026-05_agency_1842" },
+    { "source_type": "brex_transaction", "source_record_id": "brex_uk_01_2026-05_paid_social_771" }
+  ],
+  "validation": {
+    "schema_valid": true,
+    "grounding_records_found": 3,
+    "numeric_reconciliation_passed": true
+  },
+  "review_required": true,
+  "audit": {
+    "generated_at": "2026-06-28T00:00:00.000Z",
+    "model_name": "mock-finance-analyzer",
+    "prompt_version": "finance-close-command-centre-v1"
+  }
+}
+```
