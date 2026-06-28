@@ -181,6 +181,42 @@ describe("analyze routes", () => {
     }
   });
 
+  it("aborts analyzer work when a timeout occurs", async () => {
+    const originalTimeout = process.env.ANALYSIS_TIMEOUT_MS;
+    process.env.ANALYSIS_TIMEOUT_MS = "5";
+
+    let attempts = 0;
+    let observedSignal: AbortSignal | undefined;
+    let resolveAbortSeen: (() => void) | undefined;
+    const abortSeen = new Promise<void>((resolve) => {
+      resolveAbortSeen = resolve;
+    });
+
+    const analyzer: FinanceAnalyzer = {
+      async analyze(_request, options) {
+        attempts += 1;
+        observedSignal = options?.signal;
+        options?.signal?.addEventListener("abort", () => resolveAbortSeen?.(), { once: true });
+        return new Promise<never>(() => undefined);
+      }
+    };
+
+    try {
+      const response = await request(createTestApp(analyzer)).post("/analyze").send(validRequest).expect(408);
+      await abortSeen;
+
+      expect(response.body.error.type).toBe("timeout");
+      expect(observedSignal?.aborted).toBe(true);
+      expect(attempts).toBe(1);
+    } finally {
+      if (originalTimeout === undefined) {
+        delete process.env.ANALYSIS_TIMEOUT_MS;
+      } else {
+        process.env.ANALYSIS_TIMEOUT_MS = originalTimeout;
+      }
+    }
+  });
+
   it("keeps grounding count even when returned citations are suppressed", async () => {
     const response = await request(app)
       .post("/analyze")

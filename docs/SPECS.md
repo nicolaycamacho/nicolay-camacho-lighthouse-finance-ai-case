@@ -135,6 +135,7 @@ data: {"ok":true}
 Mappings:
 
 - invalid request -> `400 validation_error`;
+- oversized request body -> `413 request_body_too_large`;
 - timeout -> `408 timeout`;
 - malformed model output -> `502 model_output_invalid`;
 - transient provider/runtime failure -> `503 upstream_unavailable`;
@@ -185,10 +186,14 @@ Mappings:
     "overall": 0.82,
     "reasons": ["Variance amount reconciles to deterministic warehouse records."]
   },
-  "citations": [],
+  "citations": [
+    { "source_type": "warehouse_model", "source_record_id": "variance_uk_01_2026-05_marketing_opex" },
+    { "source_type": "netsuite_suiteql", "source_record_id": "vendor_bill_uk_01_2026-05_agency_1842" },
+    { "source_type": "brex_transaction", "source_record_id": "brex_uk_01_2026-05_paid_social_771" }
+  ],
   "validation": {
     "schema_valid": true,
-    "grounding_records_found": 0,
+    "grounding_records_found": 3,
     "numeric_reconciliation_passed": true
   },
   "review_required": true,

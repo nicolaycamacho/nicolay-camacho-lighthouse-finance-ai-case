@@ -51,6 +51,8 @@ The service separates HTTP-layer and LLM/model-layer errors:
 - transient provider/runtime failure -> `503 upstream_unavailable`;
 - unexpected failure -> `500 internal_error`.
 
+Analyzer calls receive an `AbortSignal`. The timeout wrapper aborts that signal before returning `408`, and the route also aborts it when the client disconnects before the response is complete. Real provider adapters should pass the signal into their HTTP, SDK, or query client so timed-out work can stop consuming sockets, latency, and provider budget.
+
 All errors return:
 
 ```json

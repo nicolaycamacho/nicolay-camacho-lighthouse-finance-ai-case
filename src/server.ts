@@ -1,8 +1,9 @@
 import "dotenv/config";
 
 import { app } from "./app";
+import { parsePort } from "./config";
 
-const port = Number.parseInt(process.env.PORT ?? "3000", 10);
+const port = parsePort();
 
 app.listen(port, () => {
   console.log(`lighthouse-finance-ai-case listening on port ${port}`);

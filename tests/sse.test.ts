@@ -19,4 +19,18 @@ describe("SSE analyze route", () => {
     expect(response.text).toContain("event: result");
     expect(response.text).toContain("event: done");
   });
+
+  it("invalid streaming requests return 400 before SSE headers are committed", async () => {
+    const response = await request(app)
+      .post("/analyze?stream=true")
+      .send({
+        query: "",
+        analysis_type: "variance"
+      })
+      .expect(400);
+
+    expect(response.headers["content-type"]).toContain("application/json");
+    expect(response.text).not.toContain("event: ack");
+    expect(response.body.error.type).toBe("validation_error");
+  });
 });

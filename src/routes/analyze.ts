@@ -1,5 +1,6 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type Response } from "express";
 
+import { parseAnalysisTimeoutMs } from "../config";
 import { ModelOutputError, ValidationError, formatZodIssues, toErrorResponse, toHttpError } from "../errors";
 import type { FinanceAnalyzer, FinanceAnalyzerOutput } from "../llm/FinanceAnalyzer";
 import { MockFinanceAnalyzer, createRunId } from "../llm/MockFinanceAnalyzer";
@@ -10,7 +11,6 @@ import { withTimeout } from "../lib/timeout";
 import { analyzeRequestSchema, analyzeResponseSchema, type AnalyzeRequest } from "../schemas/analyze";
 
 const defaultAnalyzer = new MockFinanceAnalyzer();
-export const DEFAULT_ANALYSIS_TIMEOUT_MS = 8000;
 
 export const analyzeRouter = createAnalyzeRouter(defaultAnalyzer);
 
@@ -18,15 +18,21 @@ export function createAnalyzeRouter(analyzer: FinanceAnalyzer) {
   const router = Router();
 
   router.post("/", async (req, res, next) => {
-    if (req.query.stream === "true") {
-      await handleStreamingAnalyze(req, res, analyzer);
-      return;
-    }
-
     try {
       const request = parseAnalyzeRequest(req.body);
-      const result = await runAnalyze(analyzer, request);
-      res.json(result);
+      const clientAbort = createResponseAbortSignal(res);
+
+      try {
+        if (req.query.stream === "true") {
+          await handleStreamingAnalyze(res, analyzer, request, clientAbort.signal);
+          return;
+        }
+
+        const result = await runAnalyze(analyzer, request, undefined, clientAbort.signal);
+        res.json(result);
+      } finally {
+        clientAbort.cleanup();
+      }
     } catch (error) {
       next(error);
     }
@@ -47,51 +53,50 @@ function parseAnalyzeRequest(body: unknown): AnalyzeRequest {
   return result.data;
 }
 
-async function runAnalyze(analyzer: FinanceAnalyzer, request: AnalyzeRequest, runId?: string) {
+async function runAnalyze(analyzer: FinanceAnalyzer, request: AnalyzeRequest, runId?: string, clientSignal?: AbortSignal) {
   const timeoutMs = parseAnalysisTimeoutMs();
+  const abortController = createAnalyzerAbortController(clientSignal);
 
-  return retry(
-    async () => {
-      const rawResult = await withTimeout(
-        analyzer.analyze(request, { runId }),
-        timeoutMs,
-        "Analyze request exceeded the configured timeout"
-      );
+  try {
+    return await retry(
+      async () => {
+        const rawResult = await withTimeout(
+          analyzer.analyze(request, { runId, signal: abortController.signal }),
+          timeoutMs,
+          "Analyze request exceeded the configured timeout",
+          { abortController }
+        );
 
-      return normalizeAnalyzerOutput(rawResult);
-    },
-    {
-      maxAttempts: 2,
-      baseDelayMs: 25,
-      maxDelayMs: 100
-    }
-  );
-}
-
-export function parseAnalysisTimeoutMs(rawValue = process.env.ANALYSIS_TIMEOUT_MS) {
-  if (rawValue === undefined) {
-    return DEFAULT_ANALYSIS_TIMEOUT_MS;
+        return normalizeAnalyzerOutput(rawResult);
+      },
+      {
+        maxAttempts: 2,
+        baseDelayMs: 25,
+        maxDelayMs: 100
+      }
+    );
+  } finally {
+    abortController.cleanup();
   }
-
-  const timeoutMs = Number(rawValue);
-  return Number.isInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_ANALYSIS_TIMEOUT_MS;
 }
 
-async function handleStreamingAnalyze(req: Request, res: Response, analyzer: FinanceAnalyzer) {
+async function handleStreamingAnalyze(
+  res: Response,
+  analyzer: FinanceAnalyzer,
+  request: AnalyzeRequest,
+  clientSignal?: AbortSignal
+) {
   const runId = createRunId();
   setSseHeaders(res);
   writeSseEvent(res, "ack", { run_id: runId });
 
   try {
-    writeSseEvent(res, "status", { message: "validating request" });
-    const request = parseAnalyzeRequest(req.body);
-
     writeSseEvent(res, "status", { message: "retrieving deterministic finance context" });
     writeSseEvent(res, "narrative_delta", {
       text: narrativeFor(request)
     });
 
-    const result = await runAnalyze(analyzer, request, runId);
+    const result = await runAnalyze(analyzer, request, runId, clientSignal);
     writeSseEvent(res, "result", result);
     writeSseEvent(res, "done", { ok: true });
     res.end();
@@ -100,6 +105,54 @@ async function handleStreamingAnalyze(req: Request, res: Response, analyzer: Fin
     writeSseEvent(res, "error", toErrorResponse(httpError));
     res.end();
   }
+}
+
+function createResponseAbortSignal(res: Response) {
+  const controller = new AbortController();
+  const abortIfResponseClosesEarly = () => {
+    if (!res.writableEnded) {
+      controller.abort();
+    }
+  };
+
+  res.once("close", abortIfResponseClosesEarly);
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      res.off("close", abortIfResponseClosesEarly);
+    }
+  };
+}
+
+function createAnalyzerAbortController(clientSignal?: AbortSignal) {
+  const controller = new AbortController();
+
+  if (!clientSignal) {
+    return {
+      signal: controller.signal,
+      abort: (reason?: unknown) => controller.abort(reason),
+      cleanup: () => undefined
+    };
+  }
+
+  const abortFromClient = () => {
+    controller.abort(clientSignal.reason);
+  };
+
+  if (clientSignal.aborted) {
+    abortFromClient();
+  } else {
+    clientSignal.addEventListener("abort", abortFromClient, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    abort: (reason?: unknown) => controller.abort(reason),
+    cleanup: () => {
+      clientSignal.removeEventListener("abort", abortFromClient);
+    }
+  };
 }
 
 function narrativeFor(request: AnalyzeRequest) {
