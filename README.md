@@ -16,7 +16,7 @@ Build a Close Command Centre for Finance. Finance numbers come from deterministi
 |---|---|
 | `POST /analyze` endpoint | `src/routes/analyze.ts` |
 | Structured JSON response | `src/schemas/analyze.ts` |
-| Schema enforcement | Zod validation before returning final result |
+| Schema enforcement | Authoritative Zod validation before final result; live Anthropic mode also uses strict prompting, with native tool use noted as a production upgrade in `TECHNICAL_MEMO.md` |
 | `?stream=true` SSE support | `src/routes/analyze.ts`, `src/lib/sse.ts` |
 | Transient LLM failure retry | `src/lib/retry.ts` |
 | Request timeout handling | `src/lib/timeout.ts` |
